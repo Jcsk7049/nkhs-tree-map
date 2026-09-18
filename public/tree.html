@@ -5,21 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="manifest" href="./manifest.json" />
   <title>樹木量測登記</title>
+  <!-- Google Identity Services:登入用。離線時這支 CDN 腳本載不到,
+       此時改用上次登入存下來的權杖讓學生仍能離線填寫(見下方 restoreSavedToken)。 -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     body { font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; }
     label { display: block; margin-top: 12px; font-weight: bold; }
     input { width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box; }
     button { margin-top: 20px; padding: 12px; width: 100%; font-size: 16px; }
-    button[disabled] { opacity: 0.5; }
+    button[disabled], input[disabled] { opacity: 0.5; }
     #result { margin-top: 16px; padding: 12px; background: #e8f5e9; display: none; }
     #errors { color: #c62828; margin-top: 8px; }
     #banner { display: none; margin-bottom: 16px; padding: 12px; border-radius: 4px;
               background: #fff3e0; border: 1px solid #ef6c00; color: #e65100; }
+    #signin { margin: 16px 0; padding: 12px; border: 1px dashed #999; border-radius: 4px; }
+    #signin-status { margin-bottom: 8px; color: #555; }
   </style>
 </head>
 <body>
   <div id="banner"></div>
   <h1 id="tree-title">樹木量測登記</h1>
+
+  <div id="signin">
+    <div id="signin-status">請先用校內 Google 帳號登入後才能填寫。</div>
+    <div id="gsi-button"></div>
+  </div>
+
   <form id="measurement-form">
     <label>姓名 <input type="text" id="studentName" required /></label>
     <label>班級座號 <input type="text" id="studentClassNo" required /></label>
@@ -35,23 +46,37 @@
     import { validateMeasurementInput } from '../src/calc.js';
     import { submitMeasurement, syncPendingQueue } from '../src/submit.js';
     import { buildMeasurementRecord, getTreeIdFromUrl } from '../src/treePage.js';
+    import { listPending } from '../src/offlineQueue.js';
 
-    // === 部署前必須由人類填入的設定(見 DEPLOY.md) ===
+    // === 部署前必須由人類填入的設定(見 DEPLOY.md / apps-script/README.md) ===
     const API_URL = 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE';
+    const GOOGLE_CLIENT_ID = 'PASTE_GOOGLE_OAUTH_CLIENT_ID_HERE';
 
     /** 佔位字串一律以 PASTE_ 開頭;用前綴判斷,才不會被「整份取代佔位字串」的操作誤判成已設定。 */
     const isUnconfigured = (value) => !value || value.indexOf('PASTE_') === 0;
-    const NOT_CONFIGURED = isUnconfigured(API_URL);
+    const NOT_CONFIGURED = isUnconfigured(API_URL) || isUnconfigured(GOOGLE_CLIENT_ID);
+
+    const TOKEN_STORAGE_KEY = 'tree-map-id-token';
 
     const form = document.getElementById('measurement-form');
     const submitButton = document.getElementById('submit-button');
     const errorsEl = document.getElementById('errors');
     const resultEl = document.getElementById('result');
     const bannerEl = document.getElementById('banner');
+    const signinEl = document.getElementById('signin');
+    const signinStatusEl = document.getElementById('signin-status');
+
+    let idToken = null;
+    // 遇到過期權杖後暫停背景自動重送,避免對著一個死 token 每次 online 都重打後端。
+    let syncPausedByAuth = false;
 
     function showBanner(message) {
       bannerEl.textContent = message;
       bannerEl.style.display = 'block';
+    }
+
+    function hideBanner() {
+      bannerEl.style.display = 'none';
     }
 
     function showResult(message) {
@@ -59,43 +84,183 @@
       resultEl.textContent = message;
     }
 
-    function disableForm() {
-      form.querySelectorAll('input, button').forEach((el) => { el.disabled = true; });
-    }
-
-    // 設定沒填完就讓表單能用,只會累積一堆送不出去的垃圾資料 —— 直接擋在門口。
-    if (NOT_CONFIGURED) {
-      showBanner('系統尚未設定完成,請聯絡老師(System not configured yet, contact your teacher)');
-      disableForm();
+    function setFormEnabled(enabled) {
+      form.querySelectorAll('input, button').forEach((el) => { el.disabled = !enabled; });
     }
 
     const treeId = getTreeIdFromUrl(window.location.search);
+
+    /** 表單只有在「設定完成 + 有樹編號 + 已登入」三個條件都成立時才可填寫。 */
+    function refreshFormState() {
+      setFormEnabled(!NOT_CONFIGURED && Boolean(treeId) && Boolean(idToken));
+    }
+
+    // --- 啟動檢查 ---
+    setFormEnabled(false);
+
+    if (NOT_CONFIGURED) {
+      showBanner('系統尚未設定完成,請聯絡老師(System not configured yet, contact your teacher)');
+    }
+
     if (treeId) {
       document.getElementById('tree-title').textContent = `樹木量測登記 — ${treeId}`;
     } else {
       errorsEl.textContent = '找不到樹木編號,請重新掃描 QRCode';
-      disableForm();
     }
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js');
     }
 
+    // --- 登入(Google Identity Services) ---
+
+    function rememberToken(token, email) {
+      idToken = token;
+      try {
+        localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ token, email, savedAt: Date.now() }));
+      } catch (err) {
+        // 無痕模式可能不給寫 —— 不影響這次填寫,只是下次離線開頁要重新登入。
+        console.warn('[tree-map] 無法保存登入狀態', err);
+      }
+      signinStatusEl.textContent = `已登入:${email || '(帳號不明)'}`;
+      syncPausedByAuth = false;
+      refreshFormState();
+    }
+
+    /** 從 JWT 的 payload 取 email,純粹拿來顯示;真正的驗證一律在後端做。 */
+    function readEmailFromCredential(credential) {
+      try {
+        const payload = JSON.parse(atob(credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload.email || '';
+      } catch (err) {
+        return '';
+      }
+    }
+
+    function handleCredentialResponse(response) {
+      try {
+        const credential = response && response.credential;
+        if (!credential) {
+          signinStatusEl.textContent = '登入失敗,請再試一次。';
+          return;
+        }
+        rememberToken(credential, readEmailFromCredential(credential));
+        hideBanner();
+        flushPendingQueue();
+      } catch (err) {
+        console.error('[tree-map] 處理登入回應時發生錯誤', err);
+        signinStatusEl.textContent = '登入處理失敗,請重新整理頁面再試一次。';
+      }
+    }
+
+    /**
+     * 離線備援:沿用上次存下的權杖。
+     * Google ID Token 約 1 小時就過期,所以這個權杖很可能已經不能用了 —— 但重點是
+     * 讓學生在校園死角仍能把量測資料填完存進本機佇列,補送時若被判 AUTH_EXPIRED,
+     * 資料會留在佇列並提示重新登入,不會遺失。
+     */
+    function restoreSavedToken() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(TOKEN_STORAGE_KEY) || 'null');
+        if (saved && saved.token) {
+          idToken = saved.token;
+          signinStatusEl.textContent = `已登入:${saved.email || '(帳號不明)'}(沿用上次登入)`;
+          refreshFormState();
+        }
+      } catch (err) {
+        console.warn('[tree-map] 無法讀取上次的登入狀態', err);
+      }
+    }
+
+    function initGoogleSignIn() {
+      if (NOT_CONFIGURED) {
+        signinStatusEl.textContent = '系統尚未設定完成,無法登入。';
+        return;
+      }
+      if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+        signinStatusEl.textContent = idToken
+          ? signinStatusEl.textContent
+          : '目前無法連上 Google 登入服務(可能離線),請連上網路後重新整理頁面登入。';
+        return;
+      }
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleCredentialResponse,
+        });
+        window.google.accounts.id.renderButton(document.getElementById('gsi-button'), {
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+        });
+      } catch (err) {
+        console.error('[tree-map] 初始化 Google 登入失敗', err);
+        signinStatusEl.textContent = '登入元件載入失敗,請重新整理頁面再試一次。';
+      }
+    }
+
+    restoreSavedToken();
+    // GIS 腳本是 async defer,load 事件時才保證就緒。
+    window.addEventListener('load', initGoogleSignIn);
+
+    // --- 待同步佇列 ---
+
     /** 把同步結果講清楚 —— 特別是被伺服器退掉(dropped)的筆數,不能無聲消失。 */
-    function reportSyncResult({ synced, dropped, failed }) {
+    function reportSyncResult({ synced, dropped, failed, authExpired }) {
+      console.info('[tree-map] 同步結果', { synced, dropped, failed, authExpired });
+
+      if (authExpired) {
+        syncPausedByAuth = true;
+        showBanner('登入已過期,請重新登入後才能把尚未上傳的紀錄送出(資料仍保留在這台裝置上)。');
+        return;
+      }
+
       const parts = [];
       if (synced > 0) parts.push(`已同步 ${synced} 筆`);
       if (dropped > 0) parts.push(`有 ${dropped} 筆被伺服器退回(資料不合法,已移除),請截圖回報老師`);
       if (failed > 0) parts.push(`還有 ${failed} 筆等待下次連線再試`);
       if (parts.length > 0) {
-        console.info('[tree-map] 同步結果', { synced, dropped, failed });
         showBanner(parts.join(';'));
+      } else {
+        hideBanner();
       }
     }
+
+    async function flushPendingQueue() {
+      if (NOT_CONFIGURED || !idToken) {
+        return;
+      }
+      try {
+        reportSyncResult(await syncPendingQueue(fetch, API_URL));
+      } catch (err) {
+        console.error('[tree-map] 背景同步失敗', err);
+      }
+    }
+
+    /** 開頁時若還有待同步資料,直接讓使用者看到,不要讓它靜靜躺在本機沒人知道。 */
+    async function announcePendingOnLoad() {
+      try {
+        const pending = await listPending();
+        if (pending.length > 0) {
+          showBanner(`本機還有 ${pending.length} 筆尚未上傳的紀錄,請確認已登入並連上網路,系統會自動補送。`);
+          await flushPendingQueue();
+        }
+      } catch (err) {
+        console.warn('[tree-map] 無法讀取待同步佇列', err);
+      }
+    }
+
+    announcePendingOnLoad();
+
+    // --- 送出 ---
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!treeId || NOT_CONFIGURED) {
+        return;
+      }
+      if (!idToken) {
+        errorsEl.textContent = '請先用校內 Google 帳號登入後再送出';
         return;
       }
 
@@ -123,15 +288,20 @@
       // 送出期間鎖住按鈕,避免手殘連點兩下送出兩筆。
       submitButton.disabled = true;
       try {
-        const record = buildMeasurementRecord(formValues, treeId);
-        const { status, error } = await submitMeasurement(record, fetch, API_URL);
+        const record = { ...buildMeasurementRecord(formValues, treeId), idToken };
+        const { status, code, error } = await submitMeasurement(record, fetch, API_URL);
 
         if (status === 'sent') {
+          hideBanner();
           showResult(`送出成功!計算樹高:${record.calculatedHeight} 公尺`);
         } else if (status === 'queued') {
           showResult(
-            `目前離線,已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`
+            `已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`
           );
+          if (code === 'AUTH_EXPIRED') {
+            syncPausedByAuth = true;
+            showBanner('登入已過期,資料已存在這台裝置上,請重新登入後系統會自動補送。');
+          }
         } else {
           // rejected:伺服器永久拒絕,資料沒有被保留,必須讓學生知道要重填。
           errorsEl.textContent = `伺服器拒絕了這筆資料:${error || '原因不明'},請確認輸入後重新送出`;
@@ -142,18 +312,17 @@
         errorsEl.textContent = '送出時發生錯誤,請截圖回報老師(An error occurred, please screenshot and report to your teacher)';
       } finally {
         submitButton.disabled = false;
+        refreshFormState();
       }
     });
 
-    window.addEventListener('online', async () => {
-      if (NOT_CONFIGURED) {
+    window.addEventListener('online', () => {
+      if (syncPausedByAuth) {
+        // 權杖已過期,重送只會再被拒一次。等使用者重新登入(rememberToken)後才恢復。
+        showBanner('登入已過期,請重新登入後才能把尚未上傳的紀錄送出(資料仍保留在這台裝置上)。');
         return;
       }
-      try {
-        reportSyncResult(await syncPendingQueue(fetch, API_URL));
-      } catch (err) {
-        console.error('[tree-map] 背景同步失敗', err);
-      }
+      flushPendingQueue();
     });
   </script>
 </body>

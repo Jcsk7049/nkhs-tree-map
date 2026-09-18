@@ -169,6 +169,23 @@ describe('syncPendingQueue', () => {
     expect((await listPending()).length).toBe(2);
   });
 
+  it('帶有 idToken 的紀錄應原樣經過 enqueue → sync 送到後端', async () => {
+    // 離線排隊的紀錄必須把自己的登入權杖一起帶著,之後補送時後端才驗得了身分。
+    const recordWithToken = { ...sampleRecord, idToken: 'header.payload.signature' };
+    await queueOne(recordWithToken);
+
+    const pendingBeforeSync = await listPending();
+    expect(pendingBeforeSync[0].record).toEqual(recordWithToken);
+
+    const succeedingFetch = vi.fn().mockResolvedValue(okResponse());
+    const result = await syncPendingQueue(succeedingFetch, 'https://example.com/api');
+
+    expect(result.synced).toBe(1);
+    const [, options] = succeedingFetch.mock.calls[0];
+    expect(JSON.parse(options.body)).toEqual(recordWithToken);
+    expect((await listPending()).length).toBe(0);
+  });
+
   it('混合結果應分別計數', async () => {
     await queueOne();
     await queueOne({ ...sampleRecord, treeId: 'A-024' });

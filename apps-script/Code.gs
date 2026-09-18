@@ -18,6 +18,9 @@
  */
 
 var ALLOWED_DOMAIN = 'nkhs.edu.tw'; // 依實際校網域調整
+// 由人類在 Google Cloud Console 建立 OAuth 2.0 用戶端 ID 後填入,
+// 必須與 public/tree.html 內的 GOOGLE_CLIENT_ID 完全一致(見 README.md Step 3)。
+var GOOGLE_CLIENT_ID = 'PASTE_GOOGLE_OAUTH_CLIENT_ID_HERE';
 var SHEET_NAME_RECORDS = '量測紀錄';
 // 「用戶端紀錄編號」欄的位置(1-based),用於去重。
 // 對應「量測紀錄」分頁標題列的第 10 欄,欄位順序見 README.md。
@@ -34,6 +37,69 @@ function isAllowedDomain(email, allowedDomain) {
     return false;
   }
   return parts[1].toLowerCase() === allowedDomain.toLowerCase();
+}
+
+/**
+ * 驗證前端 Google Identity Services 登入後拿到的 ID Token(JWT)。
+ *
+ * 為什麼不用 Session.getActiveUser():Web App 若設為「僅限網域使用者」存取,
+ * 跨來源的 fetch() 根本到不了 /exec(會被導向登入頁),前端永遠拿不到回應。
+ * 因此部署改為「任何人皆可存取」,網域關卡整個搬到這裡用 token 驗證來把關。
+ *
+ * @return {{ok: boolean, email?: string, code?: string, error?: string}}
+ */
+function verifyIdToken(idToken) {
+  if (GOOGLE_CLIENT_ID.indexOf('PASTE_') === 0) {
+    return { ok: false, code: 'SERVER_ERROR', error: '後端尚未設定 GOOGLE_CLIENT_ID,請聯絡老師' };
+  }
+  if (!idToken || typeof idToken !== 'string') {
+    return { ok: false, code: 'AUTH_REJECTED', error: '缺少登入資訊,請重新登入後再送出' };
+  }
+
+  var response = UrlFetchApp.fetch(
+    'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
+    { muteHttpExceptions: true }
+  );
+
+  var info = null;
+  try {
+    info = JSON.parse(response.getContentText());
+  } catch (err) {
+    info = null;
+  }
+
+  // tokeninfo 對過期或偽造的 token 一律回 4xx,錯誤說明裡會帶 "expired"。
+  if (response.getResponseCode() !== 200 || !info || info.error || info.error_description) {
+    var description = String((info && (info.error_description || info.error)) || '');
+    if (description.toLowerCase().indexOf('expired') !== -1) {
+      return { ok: false, code: 'AUTH_EXPIRED', error: '登入已過期,請重新開啟頁面登入後再試一次' };
+    }
+    return { ok: false, code: 'AUTH_REJECTED', error: '登入資訊無效,請重新登入' };
+  }
+
+  // 保險再看一次 exp(秒);tokeninfo 正常會先擋掉,但過期是要分開處理的情況,寧可多檢查。
+  var exp = Number(info.exp);
+  if (exp && exp * 1000 < Date.now()) {
+    return { ok: false, code: 'AUTH_EXPIRED', error: '登入已過期,請重新開啟頁面登入後再試一次' };
+  }
+
+  // aud 必須是我們自己的用戶端 ID,否則等於接受別人網站簽出來的 token。
+  if (info.aud !== GOOGLE_CLIENT_ID) {
+    return { ok: false, code: 'AUTH_REJECTED', error: '登入來源不符,拒絕存取' };
+  }
+
+  // hd 是 Google Workspace 的「代管網域」claim;個人 gmail 帳號沒有這個欄位。
+  // 比對邏輯與 isAllowedDomain 的網域比較一致(不分大小寫的字串相等)。
+  if (typeof info.hd !== 'string' || info.hd.toLowerCase() !== ALLOWED_DOMAIN.toLowerCase()) {
+    return { ok: false, code: 'AUTH_REJECTED', error: '非校網域帳號,拒絕存取' };
+  }
+
+  // email 的網域也要對得上(沿用與前端共用的那份純函式邏輯)。
+  if (!isAllowedDomain(info.email, ALLOWED_DOMAIN)) {
+    return { ok: false, code: 'AUTH_REJECTED', error: '非校網域帳號,拒絕存取' };
+  }
+
+  return { ok: true, email: info.email };
 }
 
 /**
@@ -128,9 +194,9 @@ function doPost(e) {
       return errorOutput('VALIDATION_FAILED', errors.join('、'));
     }
 
-    var userEmail = Session.getActiveUser().getEmail();
-    if (!isAllowedDomain(userEmail, ALLOWED_DOMAIN)) {
-      return errorOutput('AUTH_REJECTED', '非校網域帳號,拒絕存取');
+    var auth = verifyIdToken(data.idToken);
+    if (!auth.ok) {
+      return errorOutput(auth.code, auth.error);
     }
 
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RECORDS);
@@ -171,9 +237,11 @@ function doPost(e) {
 
 function doGet(e) {
   try {
-    var userEmail = Session.getActiveUser().getEmail();
-    if (!isAllowedDomain(userEmail, ALLOWED_DOMAIN)) {
-      return errorOutput('AUTH_REJECTED', '非校網域帳號,拒絕存取');
+    // GET 只能把 token 放在 query string(會留在瀏覽器/伺服器記錄中)。
+    // MVP 前端並未使用這個端點,未來若要做歷史趨勢圖再評估改成 POST。
+    var auth = verifyIdToken(e && e.parameter ? e.parameter.idToken : '');
+    if (!auth.ok) {
+      return errorOutput(auth.code, auth.error);
     }
 
     var treeId = e && e.parameter ? e.parameter.treeId : '';
