@@ -1073,7 +1073,9 @@ git remote add origin <你的GitHub repo URL>
 git push -u origin master
 ```
 
-在 GitHub repo 設定中開啟 Pages,來源選 `master` 分支的 `/public` 資料夾(或依實際 hosting 服務調整)。
+在 GitHub repo 設定中開啟 Pages,來源選 `master` 分支的 **`/ (root)`** 資料夾。
+
+> **修正(整合審查 C2):** 早期版本寫「選 `/public` 資料夾」是錯的 — `public/tree.html` 與 `public/sw.js` 都用 `../src/*.js` 相對路徑載入模組,若把 `/public` 當站台根目錄這些路徑會 404。必須用 repo root 發佈,量測頁網址為 `https://<user>.github.io/<repo>/public/tree.html?treeId=<ID>`。詳見 repo 根目錄的 `DEPLOY.md`。
 
 - [ ] **Step 2: 填入 Apps Script Web App URL**
 
@@ -1083,7 +1085,7 @@ git push -u origin master
 
 用校方平板(已加入校網域帳號),連上校園 WiFi,逐項驗證:
 
-- [ ] 開啟 `https://<你的網址>/tree.html?treeId=A-023`,確認瀏覽器提示「加入主畫面」,加入後桌面出現圖示
+- [ ] 開啟 `https://<你的網址>/public/tree.html?treeId=A-023`,確認瀏覽器提示「加入主畫面」,加入後桌面出現圖示
 - [ ] 從桌面圖示開啟,確認全螢幕顯示、無網址列
 - [ ] 用非校網域帳號登入平板存取同一網址,確認被 Apps Script 拒絕(參照 Task 5 Step 4 的驗證方式)
 - [ ] 填寫角度 45、距離 10、樹圍 80,確認畫面顯示「送出成功!計算樹高:11.5 公尺」,並在 Google Sheet 的「量測紀錄」分頁看到新增一列,同步狀態為「已同步」

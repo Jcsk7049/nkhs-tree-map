@@ -8,6 +8,15 @@ describe('CACHE_FILES', () => {
     expect(CACHE_FILES).toContain('../src/calc.js');
     expect(CACHE_FILES).toContain('../src/offlineQueue.js');
     expect(CACHE_FILES).toContain('../src/submit.js');
+    expect(CACHE_FILES).toContain('../src/treePage.js');
+  });
+
+  it('應包含 PWA 圖示,否則離線時圖示破圖', () => {
+    expect(CACHE_FILES).toContain('./icon-192.png');
+  });
+
+  it('不應包含前端未 import 的 authDomain.js(僅供 Apps Script 複製用)', () => {
+    expect(CACHE_FILES).not.toContain('../src/authDomain.js');
   });
 
   it('清單內不應有重複項目', () => {
