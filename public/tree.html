@@ -314,6 +314,7 @@
 
       // 送出期間鎖住按鈕,避免手殘連點兩下送出兩筆。
       submitButton.disabled = true;
+      submitButton.textContent = '送出中…請稍候(約 3-5 秒)';
       try {
         const record = { ...buildMeasurementRecord(formValues, treeId), idToken };
         const { status, code, error } = await submitMeasurement(record, fetch, API_URL);
@@ -337,6 +338,7 @@
         console.error('[tree-map] 送出失敗', err);
         errorsEl.textContent = '送出時發生錯誤,請截圖回報老師(An error occurred, please screenshot and report to your teacher)';
       } finally {
+        submitButton.textContent = '送出';
         submitButton.disabled = false;
         refreshFormState();
       }
