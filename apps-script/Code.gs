@@ -124,6 +124,12 @@ function hasClientRecordId(sheet, clientRecordId) {
   if (!clientRecordId) {
     return false;
   }
+  if (sheet.getMaxColumns() < COLUMN_CLIENT_RECORD_ID) {
+    // 分頁沒有那一欄(標題列忘了加),getRange 會直接丟例外。寧可讓去重失效也不要整支掛掉,
+    // 但一定要留下記錄讓老師看得到。設定方式見 README.md 的欄位表。
+    console.warn('「量測紀錄」分頁缺少第 ' + COLUMN_CLIENT_RECORD_ID + ' 欄「用戶端紀錄編號」,去重功能已停用');
+    return false;
+  }
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
     return false; // 只有標題列
@@ -214,7 +220,7 @@ function doPost(e) {
 
       sheet.appendRow([
         sanitizeCellText(data.treeId),
-        data.timestamp,
+        sanitizeCellText(data.timestamp),
         sanitizeCellText(data.studentName),
         sanitizeCellText(data.studentClassNo),
         Number(data.angleDeg),

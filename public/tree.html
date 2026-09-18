@@ -109,7 +109,11 @@
     }
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js');
+      // 註冊失敗(舊瀏覽器、無痕模式、非安全內容)只代表沒有離線能力,線上功能照常;
+      // 不接住的話會變成一個沒人處理的 promise rejection。
+      navigator.serviceWorker.register('./sw.js').catch((err) => {
+        console.warn('[tree-map] Service Worker 註冊失敗,離線功能無法使用', err);
+      });
     }
 
     // --- 登入(Google Identity Services) ---
