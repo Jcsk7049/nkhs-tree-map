@@ -106,6 +106,16 @@ describe('submitMeasurement', () => {
     expect(result.code).toBe('AUTH_EXPIRED');
     expect((await listPending()).length).toBe(1);
   });
+
+  it('伺服器回 AUTH_REJECTED 時資料應保留在佇列(可能只是 Client ID 設定不符,丟掉等於永久遺失)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      jsonResponse({ status: 'error', code: 'AUTH_REJECTED', error: '登入來源不符,拒絕存取' })
+    );
+    const result = await submitMeasurement(sampleRecord, mockFetch, 'https://example.com/api');
+    expect(result.status).toBe('queued');
+    expect(result.code).toBe('AUTH_REJECTED');
+    expect((await listPending()).length).toBe(1);
+  });
 });
 
 describe('syncPendingQueue', () => {
@@ -117,7 +127,7 @@ describe('syncPendingQueue', () => {
   it('佇列為空時各計數皆為0', async () => {
     const mockFetch = vi.fn().mockResolvedValue(okResponse());
     const result = await syncPendingQueue(mockFetch, 'https://example.com/api');
-    expect(result).toEqual({ synced: 0, dropped: 0, failed: 0, authExpired: false });
+    expect(result).toEqual({ synced: 0, dropped: 0, failed: 0, authPaused: false, authCode: null });
   });
 
   it('佇列中的紀錄同步成功後應從佇列移除', async () => {
@@ -126,7 +136,7 @@ describe('syncPendingQueue', () => {
     const succeedingFetch = vi.fn().mockResolvedValue(okResponse());
     const result = await syncPendingQueue(succeedingFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 1, dropped: 0, failed: 0, authExpired: false });
+    expect(result).toEqual({ synced: 1, dropped: 0, failed: 0, authPaused: false, authCode: null });
     expect((await listPending()).length).toBe(0);
   });
 
@@ -136,7 +146,7 @@ describe('syncPendingQueue', () => {
     const stillFailingFetch = vi.fn().mockRejectedValue(new Error('still offline'));
     const result = await syncPendingQueue(stillFailingFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 0, dropped: 0, failed: 1, authExpired: false });
+    expect(result).toEqual({ synced: 0, dropped: 0, failed: 1, authPaused: false, authCode: null });
     expect((await listPending()).length).toBe(1);
   });
 
@@ -148,7 +158,7 @@ describe('syncPendingQueue', () => {
     );
     const result = await syncPendingQueue(rejectingFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 0, dropped: 1, failed: 0, authExpired: false });
+    expect(result).toEqual({ synced: 0, dropped: 1, failed: 0, authPaused: false, authCode: null });
     expect((await listPending()).length).toBe(0);
   });
 
@@ -161,11 +171,30 @@ describe('syncPendingQueue', () => {
     );
     const result = await syncPendingQueue(expiredFetch, 'https://example.com/api');
 
-    expect(result.authExpired).toBe(true);
+    expect(result.authPaused).toBe(true);
+    expect(result.authCode).toBe('AUTH_EXPIRED');
     expect(result.synced).toBe(0);
     expect(result.dropped).toBe(0);
     // 遇到過期 token 後立刻收手,不對同一個死 token 連送兩次
     expect(expiredFetch).toHaveBeenCalledOnce();
+    expect((await listPending()).length).toBe(2);
+  });
+
+  it('AUTH_REJECTED 的紀錄應留在佇列並暫停同步(Client ID 貼錯時不能把全班資料刪光)', async () => {
+    await queueOne();
+    await queueOne({ ...sampleRecord, treeId: 'A-024' });
+
+    const rejectedFetch = vi.fn().mockResolvedValue(
+      jsonResponse({ status: 'error', code: 'AUTH_REJECTED', error: '登入來源不符,拒絕存取' })
+    );
+    const result = await syncPendingQueue(rejectedFetch, 'https://example.com/api');
+
+    expect(result.authPaused).toBe(true);
+    expect(result.authCode).toBe('AUTH_REJECTED');
+    expect(result.synced).toBe(0);
+    expect(result.dropped).toBe(0);
+    expect(rejectedFetch).toHaveBeenCalledOnce();
+    // 關鍵:兩筆都必須還在,設定修好後才補得回來
     expect((await listPending()).length).toBe(2);
   });
 
@@ -199,7 +228,7 @@ describe('syncPendingQueue', () => {
 
     const result = await syncPendingQueue(mixedFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 1, dropped: 1, failed: 1, authExpired: false });
+    expect(result).toEqual({ synced: 1, dropped: 1, failed: 1, authPaused: false, authCode: null });
     expect((await listPending()).length).toBe(1);
   });
 });

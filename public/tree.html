@@ -67,8 +67,31 @@
     const signinStatusEl = document.getElementById('signin-status');
 
     let idToken = null;
-    // 遇到過期權杖後暫停背景自動重送,避免對著一個死 token 每次 online 都重打後端。
+    // 身分關卡過不了時暫停背景自動重送,避免每次 online 都對著同一個必敗的條件重打後端。
     let syncPausedByAuth = false;
+    // 記住暫停的原因,`online` 事件才能再顯示同一段(而不是一律說「登入已過期」)。
+    let syncPauseMessage = '';
+
+    /**
+     * 兩種「資料留著、但現在送不出去」的狀況,提示對象完全不同:
+     *   AUTH_EXPIRED  — 權杖過期,學生自己重新登入就能解決。
+     *   AUTH_REJECTED — 身分被後端拒絕,最常見的原因是 tree.html 與 Code.gs 兩處的
+     *                   GOOGLE_CLIENT_ID 沒貼成同一個(或網域設定不符)。學生再怎麼重新登入
+     *                   都不會過,只有老師改部署設定才救得了,所以必須明講「找老師」。
+     * 兩者的資料都保留在本機佇列,設定/登入修好後會自動補送。
+     */
+    const AUTH_PAUSE_MESSAGES = {
+      AUTH_EXPIRED: '登入已過期,請重新登入後才能把尚未上傳的紀錄送出(資料仍保留在這台裝置上)。',
+      AUTH_REJECTED:
+        '帳號驗證失敗,請聯絡老師確認系統設定(Account verification failed, please contact your teacher to check the system configuration)。尚未上傳的紀錄仍保留在這台裝置上,設定修正後會自動補送。',
+    };
+
+    /** 暫停背景同步並顯示對應提示;資料一律留在佇列。 */
+    function pauseSyncForAuth(code) {
+      syncPausedByAuth = true;
+      syncPauseMessage = AUTH_PAUSE_MESSAGES[code] || AUTH_PAUSE_MESSAGES.AUTH_EXPIRED;
+      showBanner(syncPauseMessage);
+    }
 
     function showBanner(message) {
       bannerEl.textContent = message;
@@ -128,6 +151,7 @@
       }
       signinStatusEl.textContent = `已登入:${email || '(帳號不明)'}`;
       syncPausedByAuth = false;
+      syncPauseMessage = '';
       refreshFormState();
     }
 
@@ -210,12 +234,11 @@
     // --- 待同步佇列 ---
 
     /** 把同步結果講清楚 —— 特別是被伺服器退掉(dropped)的筆數,不能無聲消失。 */
-    function reportSyncResult({ synced, dropped, failed, authExpired }) {
-      console.info('[tree-map] 同步結果', { synced, dropped, failed, authExpired });
+    function reportSyncResult({ synced, dropped, failed, authPaused, authCode }) {
+      console.info('[tree-map] 同步結果', { synced, dropped, failed, authPaused, authCode });
 
-      if (authExpired) {
-        syncPausedByAuth = true;
-        showBanner('登入已過期,請重新登入後才能把尚未上傳的紀錄送出(資料仍保留在這台裝置上)。');
+      if (authPaused) {
+        pauseSyncForAuth(authCode);
         return;
       }
 
@@ -302,9 +325,8 @@
           showResult(
             `已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`
           );
-          if (code === 'AUTH_EXPIRED') {
-            syncPausedByAuth = true;
-            showBanner('登入已過期,資料已存在這台裝置上,請重新登入後系統會自動補送。');
+          if (code === 'AUTH_EXPIRED' || code === 'AUTH_REJECTED') {
+            pauseSyncForAuth(code);
           }
         } else {
           // rejected:伺服器永久拒絕,資料沒有被保留,必須讓學生知道要重填。
@@ -322,8 +344,8 @@
 
     window.addEventListener('online', () => {
       if (syncPausedByAuth) {
-        // 權杖已過期,重送只會再被拒一次。等使用者重新登入(rememberToken)後才恢復。
-        showBanner('登入已過期,請重新登入後才能把尚未上傳的紀錄送出(資料仍保留在這台裝置上)。');
+        // 身分關卡沒解決前重送只會再被拒一次。等重新登入(rememberToken)或老師改好設定後才恢復。
+        showBanner(syncPauseMessage || AUTH_PAUSE_MESSAGES.AUTH_EXPIRED);
         return;
       }
       flushPendingQueue();
