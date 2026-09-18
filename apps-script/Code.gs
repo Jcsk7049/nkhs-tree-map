@@ -22,7 +22,7 @@
 var ALLOWED_DOMAIN = 'nkhs.edu.tw'; // 依實際校網域調整
 // 由人類在 Google Cloud Console 建立 OAuth 2.0 用戶端 ID 後填入,
 // 必須與 public/tree.html 內的 GOOGLE_CLIENT_ID 完全一致(見 README.md Step 3)。
-var GOOGLE_CLIENT_ID = 'PASTE_GOOGLE_OAUTH_CLIENT_ID_HERE';
+var GOOGLE_CLIENT_ID = '315947250270-9519c1ga10lm01ljoccu8h4c7dv3a5uh.apps.googleusercontent.com';
 var SHEET_NAME_RECORDS = '量測紀錄';
 
 // ============================================================================

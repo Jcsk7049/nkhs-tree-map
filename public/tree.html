@@ -49,8 +49,8 @@
     import { listPending } from '../src/offlineQueue.js';
 
     // === 部署前必須由人類填入的設定(見 DEPLOY.md / apps-script/README.md) ===
-    const API_URL = 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE';
-    const GOOGLE_CLIENT_ID = 'PASTE_GOOGLE_OAUTH_CLIENT_ID_HERE';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwzmAZenLHps_WO6345Q3rL6Tp0KlKWZcSv-Z1RnYqrB_ABC8X8IhZU9HWXRiFYcLE4/exec';
+    const GOOGLE_CLIENT_ID = '315947250270-9519c1ga10lm01ljoccu8h4c7dv3a5uh.apps.googleusercontent.com';
 
     /** 佔位字串一律以 PASTE_ 開頭;用前綴判斷,才不會被「整份取代佔位字串」的操作誤判成已設定。 */
     const isUnconfigured = (value) => !value || value.indexOf('PASTE_') === 0;
