@@ -10,11 +10,15 @@
     label { display: block; margin-top: 12px; font-weight: bold; }
     input { width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box; }
     button { margin-top: 20px; padding: 12px; width: 100%; font-size: 16px; }
+    button[disabled] { opacity: 0.5; }
     #result { margin-top: 16px; padding: 12px; background: #e8f5e9; display: none; }
     #errors { color: #c62828; margin-top: 8px; }
+    #banner { display: none; margin-bottom: 16px; padding: 12px; border-radius: 4px;
+              background: #fff3e0; border: 1px solid #ef6c00; color: #e65100; }
   </style>
 </head>
 <body>
+  <div id="banner"></div>
   <h1 id="tree-title">樹木量測登記</h1>
   <form id="measurement-form">
     <label>姓名 <input type="text" id="studentName" required /></label>
@@ -23,7 +27,7 @@
     <label>水平距離(公尺) <input type="number" id="distanceM" step="0.01" required /></label>
     <label>樹圍(公分) <input type="number" id="girthCm" step="0.1" required /></label>
     <div id="errors"></div>
-    <button type="submit">送出</button>
+    <button type="submit" id="submit-button">送出</button>
   </form>
   <div id="result"></div>
 
@@ -32,56 +36,124 @@
     import { submitMeasurement, syncPendingQueue } from '../src/submit.js';
     import { buildMeasurementRecord, getTreeIdFromUrl } from '../src/treePage.js';
 
+    // === 部署前必須由人類填入的設定(見 DEPLOY.md) ===
     const API_URL = 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE';
 
-    const treeId = getTreeIdFromUrl(window.location.search);
-    document.getElementById('tree-title').textContent = `樹木量測登記 — ${treeId}`;
+    /** 佔位字串一律以 PASTE_ 開頭;用前綴判斷,才不會被「整份取代佔位字串」的操作誤判成已設定。 */
+    const isUnconfigured = (value) => !value || value.indexOf('PASTE_') === 0;
+    const NOT_CONFIGURED = isUnconfigured(API_URL);
 
-    if (!treeId) {
-      const errorsEl = document.getElementById('errors');
-      errorsEl.textContent = '找不到樹木編號,請重新掃描 QRCode';
-      const form = document.getElementById('measurement-form');
+    const form = document.getElementById('measurement-form');
+    const submitButton = document.getElementById('submit-button');
+    const errorsEl = document.getElementById('errors');
+    const resultEl = document.getElementById('result');
+    const bannerEl = document.getElementById('banner');
+
+    function showBanner(message) {
+      bannerEl.textContent = message;
+      bannerEl.style.display = 'block';
+    }
+
+    function showResult(message) {
+      resultEl.style.display = 'block';
+      resultEl.textContent = message;
+    }
+
+    function disableForm() {
       form.querySelectorAll('input, button').forEach((el) => { el.disabled = true; });
+    }
+
+    // 設定沒填完就讓表單能用,只會累積一堆送不出去的垃圾資料 —— 直接擋在門口。
+    if (NOT_CONFIGURED) {
+      showBanner('系統尚未設定完成,請聯絡老師(System not configured yet, contact your teacher)');
+      disableForm();
+    }
+
+    const treeId = getTreeIdFromUrl(window.location.search);
+    if (treeId) {
+      document.getElementById('tree-title').textContent = `樹木量測登記 — ${treeId}`;
+    } else {
+      errorsEl.textContent = '找不到樹木編號,請重新掃描 QRCode';
+      disableForm();
     }
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js');
     }
 
-    document.getElementById('measurement-form').addEventListener('submit', async (event) => {
+    /** 把同步結果講清楚 —— 特別是被伺服器退掉(dropped)的筆數,不能無聲消失。 */
+    function reportSyncResult({ synced, dropped, failed }) {
+      const parts = [];
+      if (synced > 0) parts.push(`已同步 ${synced} 筆`);
+      if (dropped > 0) parts.push(`有 ${dropped} 筆被伺服器退回(資料不合法,已移除),請截圖回報老師`);
+      if (failed > 0) parts.push(`還有 ${failed} 筆等待下次連線再試`);
+      if (parts.length > 0) {
+        console.info('[tree-map] 同步結果', { synced, dropped, failed });
+        showBanner(parts.join(';'));
+      }
+    }
+
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      if (!treeId) {
+      if (!treeId || NOT_CONFIGURED) {
         return;
       }
+
       const formValues = {
-        studentName: document.getElementById('studentName').value,
-        studentClassNo: document.getElementById('studentClassNo').value,
+        studentName: document.getElementById('studentName').value.trim(),
+        studentClassNo: document.getElementById('studentClassNo').value.trim(),
         angleDeg: Number(document.getElementById('angleDeg').value),
         distanceM: Number(document.getElementById('distanceM').value),
         girthCm: Number(document.getElementById('girthCm').value),
       };
 
+      // required 擋不掉整串空白,但空白的姓名等於沒填。
+      const textErrors = [];
+      if (!formValues.studentName) textErrors.push('請填寫姓名');
+      if (!formValues.studentClassNo) textErrors.push('請填寫班級座號');
+
       const validation = validateMeasurementInput(formValues);
-      const errorsEl = document.getElementById('errors');
-      if (!validation.valid) {
-        errorsEl.textContent = validation.errors.join('、');
+      const allErrors = textErrors.concat(validation.errors);
+      if (allErrors.length > 0) {
+        errorsEl.textContent = allErrors.join('、');
         return;
       }
       errorsEl.textContent = '';
 
-      const record = buildMeasurementRecord(formValues, treeId);
-      const { status } = await submitMeasurement(record, fetch, API_URL);
+      // 送出期間鎖住按鈕,避免手殘連點兩下送出兩筆。
+      submitButton.disabled = true;
+      try {
+        const record = buildMeasurementRecord(formValues, treeId);
+        const { status, error } = await submitMeasurement(record, fetch, API_URL);
 
-      const resultEl = document.getElementById('result');
-      resultEl.style.display = 'block';
-      resultEl.textContent =
-        status === 'sent'
-          ? `送出成功!計算樹高:${record.calculatedHeight} 公尺`
-          : `目前離線,已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`;
+        if (status === 'sent') {
+          showResult(`送出成功!計算樹高:${record.calculatedHeight} 公尺`);
+        } else if (status === 'queued') {
+          showResult(
+            `目前離線,已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`
+          );
+        } else {
+          // rejected:伺服器永久拒絕,資料沒有被保留,必須讓學生知道要重填。
+          errorsEl.textContent = `伺服器拒絕了這筆資料:${error || '原因不明'},請確認輸入後重新送出`;
+        }
+      } catch (err) {
+        // 例如無痕模式下 IndexedDB 不可用、儲存空間已滿 —— enqueue 本身就會爆。
+        console.error('[tree-map] 送出失敗', err);
+        errorsEl.textContent = '送出時發生錯誤,請截圖回報老師(An error occurred, please screenshot and report to your teacher)';
+      } finally {
+        submitButton.disabled = false;
+      }
     });
 
-    window.addEventListener('online', () => {
-      syncPendingQueue(fetch, API_URL);
+    window.addEventListener('online', async () => {
+      if (NOT_CONFIGURED) {
+        return;
+      }
+      try {
+        reportSyncResult(await syncPendingQueue(fetch, API_URL));
+      } catch (err) {
+        console.error('[tree-map] 背景同步失敗', err);
+      }
     });
   </script>
 </body>
