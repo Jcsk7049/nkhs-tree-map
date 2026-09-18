@@ -12,7 +12,9 @@
  *   前端 `src/submit.js` 只認 `{status:'ok'}` 為送達,其餘一律視為失敗。
  *   code 的意義:
  *     VALIDATION_FAILED — 資料不合法,永久拒絕,前端會把該筆移出離線佇列
- *     AUTH_REJECTED     — 身分不被接受(網域不符/aud 不符),永久拒絕
+ *     AUTH_REJECTED     — 身分不被接受(網域不符/aud 不符)。**資料保留在佇列**:
+ *                          最常見的原因是兩處 GOOGLE_CLIENT_ID 沒貼成同一個,那是可修復的
+ *                          設定問題,丟掉資料等於因為一個筆誤刪光全班紀錄(見 src/submit.js)
  *     AUTH_EXPIRED      — 登入權杖過期,資料保留在佇列,等使用者重新登入再送
  *     SERVER_ERROR      — 後端自身出錯,前端保留重試
  */
@@ -39,6 +41,48 @@ function isAllowedDomain(email, allowedDomain) {
   return parts[1].toLowerCase() === allowedDomain.toLowerCase();
 }
 
+/** base64url 允許省略尾端的 `=`;補回去才餵得進 base64 解碼器。 */
+function padBase64(segment) {
+  var padded = segment;
+  while (padded.length % 4 !== 0) {
+    padded += '=';
+  }
+  return padded;
+}
+
+/**
+ * 從 ID Token(JWT)自己的 payload 讀出 `exp`(Unix 秒),讀不到就回 null。
+ *
+ * JWT 的格式是 `header.payload.signature`,三段各自是 base64url。中間那段是明碼 JSON,
+ * 不需要驗簽就讀得到 —— 這裡**刻意**只把它當「快速且可靠的過期預檢」,不當信任依據:
+ * 真正的信任邊界仍然是下面的 tokeninfo 呼叫(驗簽 + aud/hd)。偽造一個 exp 很遠的 token
+ * 只會讓它跳過這道預檢,然後照樣死在 tokeninfo 那一關。
+ *
+ * 為什麼要有這個函式:tokeninfo 對過期 token 一律回 4xx,原本的程式只能用
+ * 「錯誤說明裡有沒有 'expired' 這個英文字」來分辨「過期」與「其他拒絕」。Google 哪天改了
+ * 措辭,過期就會被誤判成 AUTH_REJECTED。改成先看 token 自己的 exp,不再依賴任何英文字串。
+ *
+ * @return {number|null} exp(秒);token 格式不對、payload 不是 JSON 或沒有 exp 時回 null
+ */
+function getTokenExpirySeconds(idToken) {
+  if (!idToken || typeof idToken !== 'string') {
+    return null;
+  }
+  var segments = idToken.split('.');
+  if (segments.length !== 3) {
+    return null;
+  }
+  try {
+    var bytes = Utilities.base64DecodeWebSafe(padBase64(segments[1]));
+    var payload = JSON.parse(Utilities.newBlob(bytes).getDataAsString('UTF-8'));
+    var exp = Number(payload && payload.exp);
+    return exp > 0 ? exp : null;
+  } catch (err) {
+    // 亂填的 token、非 base64、payload 不是 JSON —— 一律當「讀不到 exp」,交給 tokeninfo 去拒絕。
+    return null;
+  }
+}
+
 /**
  * 驗證前端 Google Identity Services 登入後拿到的 ID Token(JWT)。
  *
@@ -56,6 +100,13 @@ function verifyIdToken(idToken) {
     return { ok: false, code: 'AUTH_REJECTED', error: '缺少登入資訊,請重新登入後再送出' };
   }
 
+  // 過期判定放在打 tokeninfo **之前**:token 自己的 exp 是權威且不會變動的事實,
+  // 不必為了一個必定過期的 token 多打一次網路,也不必再去猜 Google 的錯誤文案。
+  var expSeconds = getTokenExpirySeconds(idToken);
+  if (expSeconds !== null && expSeconds <= Math.floor(Date.now() / 1000)) {
+    return { ok: false, code: 'AUTH_EXPIRED', error: '登入已過期,請重新開啟頁面登入後再試一次' };
+  }
+
   var response = UrlFetchApp.fetch(
     'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
     { muteHttpExceptions: true }
@@ -68,19 +119,11 @@ function verifyIdToken(idToken) {
     info = null;
   }
 
-  // tokeninfo 對過期或偽造的 token 一律回 4xx,錯誤說明裡會帶 "expired"。
+  // 走到這裡代表 token 沒過期(或根本讀不出 exp)。tokeninfo 對偽造/損壞的 token 回 4xx,
+  // 一律當 AUTH_REJECTED —— 不再解析 Google 的錯誤文字,過期已在上面用 exp 判完。
+  // 注意 AUTH_REJECTED 在前端是「保留資料、暫停重送、請老師檢查設定」,不會刪資料。
   if (response.getResponseCode() !== 200 || !info || info.error || info.error_description) {
-    var description = String((info && (info.error_description || info.error)) || '');
-    if (description.toLowerCase().indexOf('expired') !== -1) {
-      return { ok: false, code: 'AUTH_EXPIRED', error: '登入已過期,請重新開啟頁面登入後再試一次' };
-    }
     return { ok: false, code: 'AUTH_REJECTED', error: '登入資訊無效,請重新登入' };
-  }
-
-  // 保險再看一次 exp(秒);tokeninfo 正常會先擋掉,但過期是要分開處理的情況,寧可多檢查。
-  var exp = Number(info.exp);
-  if (exp && exp * 1000 < Date.now()) {
-    return { ok: false, code: 'AUTH_EXPIRED', error: '登入已過期,請重新開啟頁面登入後再試一次' };
   }
 
   // aud 必須是我們自己的用戶端 ID,否則等於接受別人網站簽出來的 token。
