@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="manifest" href="./manifest.json" />
+  <title>樹木量測登記</title>
+  <style>
+    body { font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; }
+    label { display: block; margin-top: 12px; font-weight: bold; }
+    input { width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box; }
+    button { margin-top: 20px; padding: 12px; width: 100%; font-size: 16px; }
+    #result { margin-top: 16px; padding: 12px; background: #e8f5e9; display: none; }
+    #errors { color: #c62828; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1 id="tree-title">樹木量測登記</h1>
+  <form id="measurement-form">
+    <label>姓名 <input type="text" id="studentName" required /></label>
+    <label>班級座號 <input type="text" id="studentClassNo" required /></label>
+    <label>仰角(度) <input type="number" id="angleDeg" step="0.1" required /></label>
+    <label>水平距離(公尺) <input type="number" id="distanceM" step="0.01" required /></label>
+    <label>樹圍(公分) <input type="number" id="girthCm" step="0.1" required /></label>
+    <div id="errors"></div>
+    <button type="submit">送出</button>
+  </form>
+  <div id="result"></div>
+
+  <script type="module">
+    import { validateMeasurementInput } from '../src/calc.js';
+    import { submitMeasurement, syncPendingQueue } from '../src/submit.js';
+    import { buildMeasurementRecord, getTreeIdFromUrl } from '../src/treePage.js';
+
+    const API_URL = 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE';
+
+    const treeId = getTreeIdFromUrl(window.location.search);
+    document.getElementById('tree-title').textContent = `樹木量測登記 — ${treeId}`;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js');
+    }
+
+    document.getElementById('measurement-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formValues = {
+        studentName: document.getElementById('studentName').value,
+        studentClassNo: document.getElementById('studentClassNo').value,
+        angleDeg: Number(document.getElementById('angleDeg').value),
+        distanceM: Number(document.getElementById('distanceM').value),
+        girthCm: Number(document.getElementById('girthCm').value),
+      };
+
+      const validation = validateMeasurementInput(formValues);
+      const errorsEl = document.getElementById('errors');
+      if (!validation.valid) {
+        errorsEl.textContent = validation.errors.join('、');
+        return;
+      }
+      errorsEl.textContent = '';
+
+      const record = buildMeasurementRecord(formValues, treeId);
+      const { status } = await submitMeasurement(record, fetch, API_URL);
+
+      const resultEl = document.getElementById('result');
+      resultEl.style.display = 'block';
+      resultEl.textContent =
+        status === 'sent'
+          ? `送出成功!計算樹高:${record.calculatedHeight} 公尺`
+          : `目前離線,已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`;
+    });
+
+    window.addEventListener('online', () => {
+      syncPendingQueue(fetch, API_URL);
+    });
+  </script>
+</body>
+</html>
