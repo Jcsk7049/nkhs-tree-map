@@ -24,6 +24,16 @@ var ALLOWED_DOMAIN = 'nkhs.edu.tw'; // 依實際校網域調整
 // 必須與 public/tree.html 內的 GOOGLE_CLIENT_ID 完全一致(見 README.md Step 3)。
 var GOOGLE_CLIENT_ID = 'PASTE_GOOGLE_OAUTH_CLIENT_ID_HERE';
 var SHEET_NAME_RECORDS = '量測紀錄';
+
+// ============================================================================
+// 【本機測試專用開關】正式交給學校前必須改回 false、清空白名單,並確認校網域帳號
+// 走的是下面正常的 hd/isAllowedDomain 檢查,不是這條後門。
+// 用途:開發者沒有校方 Workspace 帳號時,用個人 Gmail 帳號完整測到「送出成功寫入 Sheet」。
+// 個人 Gmail 沒有 `hd` claim,一定會被正常的網域檢查擋下;此開關讓白名單裡的特定 email
+// 略過 hd/網域比對(但仍要通過 tokeninfo 簽章驗證與 aud 比對,不是完全不驗證)。
+var TEST_MODE = false;
+var TEST_ALLOWED_EMAILS = []; // 例如 ['your-personal-account@gmail.com']
+// ============================================================================
 // 「用戶端紀錄編號」欄的位置(1-based),用於去重。
 // 對應「量測紀錄」分頁標題列的第 10 欄,欄位順序見 README.md。
 var COLUMN_CLIENT_RECORD_ID = 10;
@@ -129,6 +139,17 @@ function verifyIdToken(idToken) {
   // aud 必須是我們自己的用戶端 ID,否則等於接受別人網站簽出來的 token。
   if (info.aud !== GOOGLE_CLIENT_ID) {
     return { ok: false, code: 'AUTH_REJECTED', error: '登入來源不符,拒絕存取' };
+  }
+
+  // 【本機測試專用】白名單裡的 email 略過下面的 hd/網域檢查 —— 仍然通過了上面 tokeninfo
+  // 的簽章驗證與 aud 比對,只是不要求它是校網域帳號。正式交給學校前 TEST_MODE 務必改回 false。
+  if (TEST_MODE && typeof info.email === 'string') {
+    var isTestUser = TEST_ALLOWED_EMAILS.some(function (allowed) {
+      return allowed.toLowerCase() === info.email.toLowerCase();
+    });
+    if (isTestUser) {
+      return { ok: true, email: info.email };
+    }
   }
 
   // hd 是 Google Workspace 的「代管網域」claim;個人 gmail 帳號沒有這個欄位。

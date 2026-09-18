@@ -50,6 +50,22 @@
 
 **Google OAuth 用戶端 ID:** ___________________________________________ (由人類填入)
 
+### 沒有校方 Workspace 帳號時,先用個人 Gmail 完整測試
+
+開發階段若還沒拿到校方帳號,可以先用個人 Gmail 帳號把整條流程(登入 → 送出 → 寫入 Sheet)完整測過,再交接給學校:
+
+1. **OAuth 同意畫面的「使用者類型」選「外部」**(個人帳號建立不了「內部」類型),發布狀態保持**「測試中」**,並在「目標對象 → 測試使用者」加入您自己的 Gmail 帳號(最多可加 100 個)——只有名單裡的帳號登入得了,這本身就是一層存取控制。
+2. 其餘 Step 3 步驟(建立 OAuth 用戶端 ID、填入兩處 `GOOGLE_CLIENT_ID`)照常進行。
+3. 打開 `apps-script/Code.gs` 檔案最上面的**【本機測試專用開關】**區塊:
+   - 把 `TEST_MODE` 改成 `true`
+   - 把 `TEST_ALLOWED_EMAILS` 填入您測試用的個人 Gmail 帳號,例如 `['your-account@gmail.com']`
+4. 用該 Gmail 帳號登入頁面測試——因為個人帳號沒有校網域(`hd` claim),正常情況下會被 `AUTH_REJECTED` 擋下,`TEST_MODE` 開啟後,白名單裡的帳號會跳過網域檢查,但**仍然要通過** Google tokeninfo 的簽章驗證與 `aud` 比對,不是完全不驗證。
+
+**⚠️ 交接給學校前,務必:**
+- 把 `TEST_MODE` 改回 `false`,`TEST_ALLOWED_EMAILS` 清空
+- 確認 `ALLOWED_DOMAIN` 已經是真正的校網域
+- 用**校方帳號**重新走一次 Step 1(Sheet)、Step 3(OAuth 用戶端 ID)、Step 4(部署),不要沿用您個人帳號建的 Google Sheet / Apps Script 專案——校方資料應該由校方帳號擁有,而不是掛在老師個人的 Google 帳號底下
+
 ## Step 4:部署為 Web App
 
 在 Apps Script 編輯器內:
@@ -87,6 +103,8 @@ Google ID Token 約 1 小時後過期。若學生離線超過一小時才恢復�
 唯一會被移出佇列的是 `VALIDATION_FAILED`(資料本身壞掉,前端已先驗過一次,正常紀錄不會走到這裡)。
 
 ## Step 5:手動驗證清單(TODO,部署後由人類逐項執行)
+
+- [ ] **(正式交接給學校前必查)** 打開 `Code.gs`,確認 `TEST_MODE` 是 `false`、`TEST_ALLOWED_EMAILS` 是空陣列——這個開關忘記關掉等於留一個繞過網域檢查的後門
 
 取得 ID Token 的方法:在已部署的量測頁面上用校內帳號登入後,開 devtools console 執行
 `JSON.parse(localStorage.getItem('tree-map-id-token')).token`,複製出來當下面的 `<ID_TOKEN>`(約 1 小時後過期)。
