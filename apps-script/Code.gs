@@ -282,7 +282,11 @@ function doPost(e) {
         return jsonOutput({ status: 'ok', duplicate: true });
       }
 
-      sheet.appendRow([
+      // 不能用 appendRow:它會讓 Sheets 自動判斷型別,座號 "0312" 會被吞成數字 312、前導零消失。
+      // 先把新列的前 4 欄(樹編號/時間戳/姓名/座號)格式設成純文字,再寫值,才會原樣保留。
+      var newRow = sheet.getLastRow() + 1;
+      sheet.getRange(newRow, 1, 1, 4).setNumberFormat('@');
+      sheet.getRange(newRow, 1, 1, 10).setValues([[
         sanitizeCellText(data.treeId),
         sanitizeCellText(data.timestamp),
         sanitizeCellText(data.studentName),
@@ -293,7 +297,7 @@ function doPost(e) {
         Number(data.girthCm),
         '已同步',
         sanitizeCellText(data.clientRecordId),
-      ]);
+      ]]);
     } finally {
       lock.releaseLock();
     }
