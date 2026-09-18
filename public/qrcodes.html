@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>樹木 QRCode 標籤產生器</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: sans-serif; margin: 0; padding: 16px; color: #1b1b1b; }
+    .tool { max-width: 860px; margin: 0 auto 24px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .hint { color: #555; font-size: 14px; margin: 0 0 16px; }
+    fieldset { border: 1px solid #ccc; border-radius: 6px; margin: 0 0 14px; padding: 12px 14px; }
+    legend { font-weight: bold; padding: 0 6px; }
+    label { display: block; font-size: 14px; margin-top: 8px; }
+    input[type="text"], input[type="number"], textarea { width: 100%; padding: 8px; font-size: 16px; }
+    textarea { min-height: 120px; font-family: monospace; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > label { flex: 1 1 110px; }
+    button { padding: 10px 16px; font-size: 16px; margin: 10px 8px 0 0; cursor: pointer; }
+    button.primary { background: #2e7d32; color: #fff; border: 0; border-radius: 4px; }
+    #message { min-height: 1.4em; margin: 8px 0; font-size: 14px; }
+    #message.error { color: #c62828; }
+    #message.warn { color: #b26a00; }
+
+    .sheet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; max-width: 190mm; margin: 0 auto; }
+    .label { border: 1px dashed #888; padding: 4mm; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+    .label svg { width: 100%; height: auto; display: block; margin: 0 auto; }
+    .label .id { font-size: 22px; font-weight: bold; margin-top: 2mm; word-break: break-all; }
+    .label .cap { font-size: 11px; color: #444; margin-top: 1mm; }
+
+    @page { size: A4; margin: 10mm; }
+    @media print {
+      body { padding: 0; }
+      .tool { display: none; }
+      .label { border: 1px dashed #999; }
+    }
+  </style>
+</head>
+<body>
+  <div class="tool">
+    <h1>樹木 QRCode 標籤產生器</h1>
+    <p class="hint">產生後按「列印」,印表機選「另存為 PDF」或直接印在貼紙上。QR 內容是各樹的量測登記網址。</p>
+
+    <fieldset>
+      <legend>1. 量測頁面網址</legend>
+      <label>學生掃碼後會開啟這個網址(日後換網域時改這裡再重印)
+        <input type="text" id="base-url" />
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. 樹編號</legend>
+      <div class="row">
+        <label>前綴 <input type="text" id="range-prefix" value="A-" /></label>
+        <label>起 <input type="number" id="range-start" value="1" min="0" step="1" /></label>
+        <label>迄 <input type="number" id="range-end" value="20" min="0" step="1" /></label>
+        <label>位數 <input type="number" id="range-pad" value="3" min="0" max="8" step="1" /></label>
+      </div>
+      <button type="button" id="add-range">用範圍加入清單</button>
+      <label>編號清單(每行一個,也可用逗號分隔;重複的會自動合併)
+        <textarea id="id-list" placeholder="A-001&#10;A-002&#10;B-015"></textarea>
+      </label>
+    </fieldset>
+
+    <button type="button" class="primary" id="generate">產生標籤</button>
+    <button type="button" id="print" disabled>列印 / 另存 PDF</button>
+    <div id="message" role="status"></div>
+  </div>
+
+  <div class="sheet" id="sheet"></div>
+
+  <script type="module">
+    import qrcode from './vendor/qrcode.mjs';
+    import { generateRange, parseIdList, mergeIds, buildTreeUrl, MAX_LABELS } from '../src/qrLabels.js';
+
+    const baseUrlInput = document.getElementById('base-url');
+    const listInput = document.getElementById('id-list');
+    const sheetEl = document.getElementById('sheet');
+    const messageEl = document.getElementById('message');
+    const printButton = document.getElementById('print');
+
+    baseUrlInput.value = new URL('./tree.html', window.location.href).href;
+
+    function say(text, kind) {
+      messageEl.textContent = text;
+      messageEl.className = kind || '';
+    }
+
+    function isLocalOrigin() {
+      const { protocol, hostname } = window.location;
+      return protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1';
+    }
+
+    if (isLocalOrigin()) {
+      say('注意:目前是本機網址,印出來的 QR 只有這台電腦掃得到。正式列印請從正式網站開啟本頁,或在上方手動填入正式網址。', 'warn');
+    }
+
+    document.getElementById('add-range').addEventListener('click', () => {
+      try {
+        const ids = generateRange({
+          prefix: document.getElementById('range-prefix').value,
+          start: Number(document.getElementById('range-start').value),
+          end: Number(document.getElementById('range-end').value),
+          pad: Number(document.getElementById('range-pad').value),
+        });
+        const merged = mergeIds(parseIdList(listInput.value), ids);
+        listInput.value = merged.join('\n');
+        say(`清單目前共 ${merged.length} 個編號`);
+      } catch (err) {
+        say(err.message, 'error');
+      }
+    });
+
+    document.getElementById('generate').addEventListener('click', () => {
+      sheetEl.textContent = '';
+      printButton.disabled = true;
+
+      const ids = parseIdList(listInput.value);
+      if (ids.length === 0) {
+        say('請先輸入樹編號(用範圍加入或直接貼清單)', 'error');
+        return;
+      }
+      if (ids.length > MAX_LABELS) {
+        say(`一次最多產生 ${MAX_LABELS} 個,目前有 ${ids.length} 個,請分批`, 'error');
+        return;
+      }
+
+      try {
+        const fragment = document.createDocumentFragment();
+        for (const id of ids) {
+          const qr = qrcode(0, 'Q');
+          qr.addData(buildTreeUrl(baseUrlInput.value.trim(), id));
+          qr.make();
+
+          const label = document.createElement('div');
+          label.className = 'label';
+
+          const qrBox = document.createElement('div');
+          // 這段 SVG 完全由函式庫從矩陣資料組成,不含任何使用者輸入的字串。
+          qrBox.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+
+          const idEl = document.createElement('div');
+          idEl.className = 'id';
+          idEl.textContent = id;
+
+          const capEl = document.createElement('div');
+          capEl.className = 'cap';
+          capEl.textContent = '掃碼登記樹高與樹圍';
+
+          label.append(qrBox, idEl, capEl);
+          fragment.append(label);
+        }
+        sheetEl.append(fragment);
+        printButton.disabled = false;
+        if (isLocalOrigin()) {
+          say(`已產生 ${ids.length} 張標籤。注意:網址是本機位址,正式列印前請改成正式網址`, 'warn');
+        } else {
+          say(`已產生 ${ids.length} 張標籤`);
+        }
+      } catch (err) {
+        sheetEl.textContent = '';
+        say(err.message, 'error');
+      }
+    });
+
+    printButton.addEventListener('click', () => window.print());
+  </script>
+</body>
+</html>

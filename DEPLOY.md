@@ -39,3 +39,10 @@ git push -u origin master
 3. 把 Google OAuth Client ID 填入 `public/tree.html` 的 `PASTE_GOOGLE_OAUTH_CLIENT_ID_HERE`(建立方式見 `apps-script/README.md`),並同步填入 `apps-script/Code.gs` 的同名常數。
 4. commit 並 push;兩個佔位字串只要有一個沒填,頁面會顯示「系統尚未設定完成」並停用表單。
 5. 每次改動 `public/` 或 `src/` 下被快取的檔案後,記得把 `public/sw.js` 的 `CACHE_NAME` 版本號 +1,舊裝置才會換到新檔案。
+
+## QRCode 標籤產生器
+
+- 網址:`https://jcsk7049.github.io/nkhs-tree-map/public/qrcodes.html`(請從正式網址開啟,產生的 QR 才是正式網址)
+- 用「前綴 + 起迄 + 位數」或貼清單輸入樹編號 → 產生標籤 → 列印 / 另存 PDF
+- QR 內容為 `<tree.html 網址>?treeId=<編號>`;日後換網域,改頁面上的網址欄位重新列印即可
+- 錯誤更正等級用 Q(約可容忍 25% 破損),戶外貼紙建議用防水、耐曬材質並護貝
