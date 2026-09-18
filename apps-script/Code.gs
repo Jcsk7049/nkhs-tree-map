@@ -19,6 +19,9 @@
 
 var ALLOWED_DOMAIN = 'nkhs.edu.tw'; // 依實際校網域調整
 var SHEET_NAME_RECORDS = '量測紀錄';
+// 「用戶端紀錄編號」欄的位置(1-based),用於去重。
+// 對應「量測紀錄」分頁標題列的第 10 欄,欄位順序見 README.md。
+var COLUMN_CLIENT_RECORD_ID = 10;
 
 // 從 src/authDomain.js 的 isAllowedDomain 原樣複製(邏輯等價),因 Apps Script 不支援 ES module import,
 // 故此處刻意重複維護。若未來修改網域檢查邏輯,務必同步更新兩處。
@@ -31,6 +34,41 @@ function isAllowedDomain(email, allowedDomain) {
     return false;
   }
   return parts[1].toLowerCase() === allowedDomain.toLowerCase();
+}
+
+/**
+ * 防止 Google Sheets 公式注入。
+ * 以 `=`、`+`、`-`、`@` 開頭的儲存格會被 Sheets 當成公式執行(例如 `=IMPORTXML(...)`
+ * 可把整份試算表的資料外傳),而姓名/班級座號是學生自由輸入的文字。
+ * 前面補一個單引號,Sheets 就會當純文字看待。
+ */
+function sanitizeCellText(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  var text = String(value);
+  if (/^[=+\-@]/.test(text.trim())) {
+    return "'" + text;
+  }
+  return text;
+}
+
+/** 用 clientRecordId 找既有列;找到代表這筆已寫入過(重試/雙擊),不可重複 append。 */
+function hasClientRecordId(sheet, clientRecordId) {
+  if (!clientRecordId) {
+    return false;
+  }
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return false; // 只有標題列
+  }
+  var ids = sheet.getRange(2, COLUMN_CLIENT_RECORD_ID, lastRow - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(clientRecordId)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function jsonOutput(payload) {
@@ -96,17 +134,33 @@ function doPost(e) {
     }
 
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RECORDS);
-    sheet.appendRow([
-      data.treeId,
-      data.timestamp,
-      data.studentName,
-      data.studentClassNo,
-      data.angleDeg,
-      data.distanceM,
-      data.calculatedHeight,
-      data.girthCm,
-      '已同步',
-    ]);
+
+    // 「先查有沒有重複、再寫入」必須是不可分割的動作,否則兩個幾乎同時到達的重試
+    // 會雙雙查不到而各寫一列。ScriptLock 讓同一份腳本的請求排隊。
+    var lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try {
+      if (hasClientRecordId(sheet, data.clientRecordId)) {
+        // 同一筆已經寫入過(雙擊送出或離線佇列重送)。不再 append,但仍回成功,
+        // 讓前端把這筆標記為已同步並移出佇列 —— 這就是重試的冪等性。
+        return jsonOutput({ status: 'ok', duplicate: true });
+      }
+
+      sheet.appendRow([
+        sanitizeCellText(data.treeId),
+        data.timestamp,
+        sanitizeCellText(data.studentName),
+        sanitizeCellText(data.studentClassNo),
+        Number(data.angleDeg),
+        Number(data.distanceM),
+        Number(data.calculatedHeight),
+        Number(data.girthCm),
+        '已同步',
+        sanitizeCellText(data.clientRecordId),
+      ]);
+    } finally {
+      lock.releaseLock();
+    }
 
     return jsonOutput({ status: 'ok' });
   } catch (err) {
