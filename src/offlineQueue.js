@@ -11,8 +11,13 @@ function openDb() {
         db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('IndexedDB open blocked — another connection is open'));
   });
 }
 
