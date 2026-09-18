@@ -37,12 +37,22 @@
     const treeId = getTreeIdFromUrl(window.location.search);
     document.getElementById('tree-title').textContent = `樹木量測登記 — ${treeId}`;
 
+    if (!treeId) {
+      const errorsEl = document.getElementById('errors');
+      errorsEl.textContent = '找不到樹木編號,請重新掃描 QRCode';
+      const form = document.getElementById('measurement-form');
+      form.querySelectorAll('input, button').forEach((el) => { el.disabled = true; });
+    }
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js');
     }
 
     document.getElementById('measurement-form').addEventListener('submit', async (event) => {
       event.preventDefault();
+      if (!treeId) {
+        return;
+      }
       const formValues = {
         studentName: document.getElementById('studentName').value,
         studentClassNo: document.getElementById('studentClassNo').value,
