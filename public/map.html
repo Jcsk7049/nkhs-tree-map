@@ -32,10 +32,15 @@
     <button type="button" id="add-filtered">篩選結果全部加入</button>
     <button type="button" class="primary" id="make-labels">產生 QRCode 標籤</button>
     <button type="button" id="clear-list">清空清單</button>
+    <label>著色
+      <select id="color-mode">
+        <option value="posted">貼牌狀態</option>
+        <option value="height">樹高</option>
+      </select>
+    </label>
+    <button type="button" id="reload-summary">重新載入量測</button>
     <span id="stats">載入中…</span>
-    <span class="legend"><span class="dot" style="background:#9e9e9e"></span>未貼牌</span>
-    <span class="legend"><span class="dot" style="background:#2e7d32"></span>已貼牌</span>
-    <span class="legend"><span class="dot" style="background:#9e9e9e; box-shadow:0 0 0 3px #ff6d00"></span>在列印清單</span>
+    <span id="legend"></span>
   </div>
   <div id="message" role="status"></div>
   <div id="map"></div>
@@ -43,8 +48,11 @@
   <script src="./vendor/leaflet/leaflet.js"></script>
   <script type="module">
     import { filterBySpecies, speciesSummary, treesInBounds } from '../src/treeData.js';
+    import { colorForHeight, heightBands, matchSummary, NO_DATA_COLOR } from '../src/heightColors.js';
 
     const L = window.L;
+    // 與 tree.html 的 API_URL 必須相同(tests/duplication-sync.test.js 會檢查)。
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwzmAZenLHps_WO6345Q3rL6Tp0KlKWZcSv-Z1RnYqrB_ABC8X8IhZU9HWXRiFYcLE4/exec';
     const KEY_POSTED = 'tree-map-posted';
     const KEY_LIST = 'tree-map-print-list';
 
@@ -78,6 +86,8 @@
 
     let trees = [];
     let visible = [];
+    let measurements = new Map();
+    let colorMode = 'posted';
     const markers = new Map();
     const markerLayer = L.layerGroup();
     let selectMode = false;
@@ -86,14 +96,53 @@
 
     function updateStats() {
       const total = trees.length;
-      statsEl.textContent = `共 ${total} 棵(顯示 ${visible.length})· 已貼牌 ${posted.size} · 列印清單 ${printList.size}`;
+      statsEl.textContent =
+        `共 ${total} 棵(顯示 ${visible.length})· 已量測 ${measurements.size} · 已貼牌 ${posted.size} · 列印清單 ${printList.size}`;
+    }
+
+    function renderLegend() {
+      const legend = document.getElementById('legend');
+      legend.textContent = '';
+      const items = colorMode === 'height'
+        ? [{ color: NO_DATA_COLOR, label: '未量測' }, ...heightBands()]
+        : [{ color: '#9e9e9e', label: '未貼牌' }, { color: '#2e7d32', label: '已貼牌' }];
+      for (const item of items) {
+        const wrap = document.createElement('span');
+        wrap.className = 'legend';
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = item.color;
+        wrap.append(dot, item.label);
+        legend.append(wrap);
+      }
+      const ring = document.createElement('span');
+      ring.className = 'legend';
+      const ringDot = document.createElement('span');
+      ringDot.className = 'dot';
+      ringDot.style.background = '#9e9e9e';
+      ringDot.style.boxShadow = '0 0 0 3px #ff6d00';
+      ring.append(ringDot, '在列印清單');
+      legend.append(ring);
+    }
+
+    function fillFor(no) {
+      if (colorMode === 'height') {
+        const m = measurements.get(no);
+        return colorForHeight(m ? m.height : null);
+      }
+      return posted.has(no) ? '#2e7d32' : '#9e9e9e';
+    }
+
+    function refreshAllStyles() {
+      for (const [no, marker] of markers) marker.setStyle(styleFor(no));
+      updateStats();
     }
 
     function styleFor(no) {
       const inList = printList.has(no);
       return {
         radius: inList ? 7 : 5,
-        fillColor: posted.has(no) ? '#2e7d32' : '#9e9e9e',
+        fillColor: fillFor(no),
         fillOpacity: 0.95,
         color: inList ? '#ff6d00' : '#ffffff',
         weight: inList ? 3 : 1,
@@ -146,7 +195,19 @@
       link.rel = 'noopener';
       link.textContent = '開啟量測頁';
 
-      box.append(title, species, listBtn, postedBtn, link);
+      const m = measurements.get(tree.no);
+      const measure = document.createElement('div');
+      measure.style.margin = '6px 0';
+      if (m) {
+        const girth = m.girth ? `、樹圍 ${m.girth} cm` : '';
+        const date = String(m.at).slice(0, 10);
+        measure.textContent = `最新量測:樹高 ${m.height} m${girth}(${date},共 ${m.n} 筆)`;
+      } else {
+        measure.textContent = '尚無量測資料';
+        measure.style.color = '#777';
+      }
+
+      box.append(title, species, measure, listBtn, postedBtn, link);
       return box;
     }
 
@@ -254,6 +315,44 @@
       window.location.href = './qrcodes.html';
     });
 
+    let loadingSummary = false;
+    async function loadSummary() {
+      if (loadingSummary) return;
+      if (!API_URL || API_URL.indexOf('PASTE_') === 0) {
+        say('尚未設定後端網址,無法載入量測值', true);
+        return;
+      }
+      loadingSummary = true;
+      const button = document.getElementById('reload-summary');
+      button.disabled = true;
+      button.textContent = '載入中…';
+      try {
+        const res = await fetch(`${API_URL}?action=summary`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        if (body.status !== 'ok') throw new Error(body.error || '後端回應異常');
+        const { byNo, measured, ignored } = matchSummary(trees, body.trees);
+        measurements = byNo;
+        refreshAllStyles();
+        const ignoredNote = ignored > 0 ? `(另有 ${ignored} 棵的量測對不到官方樹號,已略過)` : '';
+        say(`已載入 ${measured} 棵樹的量測值${ignoredNote}。資料更新時間 ${String(body.generatedAt).slice(0, 19).replace('T', ' ')} UTC`);
+      } catch (err) {
+        say(`載入量測值失敗(地圖仍可使用):${err.message}`, true);
+      } finally {
+        loadingSummary = false;
+        button.disabled = false;
+        button.textContent = '重新載入量測';
+      }
+    }
+
+    document.getElementById('reload-summary').addEventListener('click', loadSummary);
+    document.getElementById('color-mode').addEventListener('change', (e) => {
+      colorMode = e.target.value;
+      renderLegend();
+      refreshAllStyles();
+      if (colorMode === 'height' && measurements.size === 0) loadSummary();
+    });
+
     speciesSelect.addEventListener('change', () => {
       say('');
       render();
@@ -274,7 +373,9 @@
 
       const bounds = L.latLngBounds(trees.map((t) => [t.y, t.x]));
       map.fitBounds(bounds, { padding: [20, 20] });
+      renderLegend();
       render();
+      loadSummary();
     } catch (err) {
       statsEl.textContent = '';
       say(`載入樹木資料失敗:${err.message}`, true);

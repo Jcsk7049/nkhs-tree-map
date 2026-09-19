@@ -56,3 +56,15 @@ describe('tree.html 的模組相依都必須在離線快取清單內', () => {
     }
   });
 });
+
+describe('兩個頁面的後端網址 API_URL 不得漂移', () => {
+  const apiUrlOf = (html) => {
+    const m = html.match(/const API_URL = '([^']+)'/);
+    if (!m) throw new Error('找不到 API_URL');
+    return m[1];
+  };
+
+  it('map.html 與 tree.html 的 API_URL 必須相同', () => {
+    expect(apiUrlOf(readRepoFile('public/map.html'))).toBe(apiUrlOf(readRepoFile('public/tree.html')));
+  });
+});

@@ -121,6 +121,8 @@ Google ID Token 約 1 小時後過期。若學生離線超過一小時才恢復�
   - 佐證方式:把舊 token 貼到 [jwt.io](https://jwt.io/) 或在 console 執行 `JSON.parse(atob(token.split('.')[1]))` 看 `exp`,確認 `exp * 1000 < Date.now()`;此時後端其實**完全沒有**呼叫 tokeninfo 就直接回 `AUTH_EXPIRED`(可在 Apps Script 的「執行項目」記錄確認執行時間極短、無外部呼叫)。
   - 另測一個**格式壞掉**的 token(例如 `abc.def`,只有兩段):應回 `AUTH_REJECTED` 而非 `AUTH_EXPIRED`(讀不出 `exp` → 交給 tokeninfo 拒絕)。
 - [ ] 對 Web App URL 加上 `?treeId=A-023&idToken=<ID_TOKEN>` 送出 GET,確認回傳 `{"status":"ok","records":[...]}` 且內容與 Sheet 中該樹編號的所有紀錄一致
+- [ ] **(地圖著色用的公開摘要)** 直接在瀏覽器開 `<Web App URL>?action=summary`(**不帶任何 token**),確認回傳 `{"status":"ok","generatedAt":...,"trees":[{"no":"43667","height":...,"girth":...,"at":...,"n":...}]}`,且內容**只有**樹號/樹高/樹圍/時間/筆數,**沒有姓名、座號**
+- [ ] 送出一筆新量測後,**立刻**重新整理 `?action=summary`,應馬上看到新資料(寫入會清掉 5 分鐘快取,不必等)
 
 ### 測試 POST 範例(瀏覽器 devtools console)
 

@@ -302,6 +302,7 @@ function doPost(e) {
       lock.releaseLock();
     }
 
+    invalidateSummaryCache();
     return jsonOutput({ status: 'ok' });
   } catch (err) {
     // 後端自身出錯(例如 Sheet 暫時鎖住)屬暫時性問題,回可重試的代碼。
@@ -309,8 +310,88 @@ function doPost(e) {
   }
 }
 
+// ---- 公開摘要(給地圖著色用)----
+// 「量測紀錄」分頁的欄位位置(1-based),與 README.md 的欄位表一致。
+var COLUMN_TREE_ID = 1;
+var COLUMN_TIMESTAMP = 2;
+var COLUMN_HEIGHT = 7;
+var COLUMN_GIRTH = 8;
+var SUMMARY_CACHE_KEY = 'tree-summary-v1';
+var SUMMARY_CACHE_SECONDS = 300;
+
+/**
+ * 把「量測紀錄」的資料列(不含標題列)彙整成每棵樹一筆:最新樹高、樹圍、時間、有效筆數。
+ * 「最新」以量測時間戳為準(ISO 字串可直接比大小),與列的先後順序無關。
+ * 樹高不是正數的列(空白、0、亂填)略過。**刻意不回傳姓名/座號**,這份摘要是公開的。
+ */
+function summarizeRows(rows) {
+  var byTree = {};
+  var order = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var no = String(row[COLUMN_TREE_ID - 1] === null || row[COLUMN_TREE_ID - 1] === undefined ? '' : row[COLUMN_TREE_ID - 1]).trim();
+    var height = Number(row[COLUMN_HEIGHT - 1]);
+    if (no === '' || !(height > 0)) {
+      continue;
+    }
+    var rawAt = row[COLUMN_TIMESTAMP - 1];
+    var at = rawAt instanceof Date ? rawAt.toISOString() : String(rawAt);
+    var girthRaw = row[COLUMN_GIRTH - 1];
+    var girth = girthRaw === '' || girthRaw === null || girthRaw === undefined ? NaN : Number(girthRaw);
+
+    var entry = byTree[no];
+    if (!entry) {
+      entry = { no: no, height: height, girth: girth > 0 ? girth : null, at: at, n: 0 };
+      byTree[no] = entry;
+      order.push(no);
+    } else if (at > entry.at) {
+      entry.height = height;
+      entry.girth = girth > 0 ? girth : null;
+      entry.at = at;
+    }
+    entry.n += 1;
+  }
+  return order.map(function (no) {
+    return byTree[no];
+  });
+}
+
+function summaryOutput() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(SUMMARY_CACHE_KEY);
+  if (cached) {
+    return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RECORDS);
+  var rows = sheet.getDataRange().getValues().slice(1);
+  var text = JSON.stringify({
+    status: 'ok',
+    generatedAt: new Date().toISOString(),
+    trees: summarizeRows(rows),
+  });
+  try {
+    cache.put(SUMMARY_CACHE_KEY, text, SUMMARY_CACHE_SECONDS);
+  } catch (err) {
+    // 快取放不進去(超過大小上限等)只是變慢,不影響回應。
+  }
+  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
+}
+
+function invalidateSummaryCache() {
+  try {
+    CacheService.getScriptCache().remove(SUMMARY_CACHE_KEY);
+  } catch (err) {
+    // 清不掉最多讓地圖晚 5 分鐘看到新資料,不能因此讓寫入失敗。
+  }
+}
+
 function doGet(e) {
   try {
+    if (e && e.parameter && e.parameter.action === 'summary') {
+      return summaryOutput();
+    }
+
     // GET 只能把 token 放在 query string(會留在瀏覽器/伺服器記錄中)。
     // MVP 前端並未使用這個端點,未來若要做歷史趨勢圖再評估改成 POST。
     var auth = verifyIdToken(e && e.parameter ? e.parameter.idToken : '');
