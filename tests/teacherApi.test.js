@@ -37,6 +37,15 @@ describe('callTeacherApi', () => {
     expect(bad.code).toBe('BAD_RESPONSE');
   });
 
+  it('伺服器一直不回應:超過 timeoutMs 就丟 TIMEOUT,不會永遠卡住', async () => {
+    const hang = vi.fn((url, options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+    const err = await callTeacherApi({ ...base, fetchImpl: hang, timeoutMs: 20 }).catch((e) => e);
+    expect(err).toBeInstanceOf(TeacherApiError);
+    expect(err.code).toBe('TIMEOUT');
+  });
+
   it('status 不是 ok 也沒帶 code 時,不會被當成成功', async () => {
     const err = await callTeacherApi({ ...base, fetchImpl: vi.fn().mockResolvedValue(jsonResponse({ hello: 'x' })) }).catch((e) => e);
     expect(err).toBeInstanceOf(TeacherApiError);

@@ -72,7 +72,8 @@ export function requireTeacher({ apiUrl, clientId }) {
     }
 
     async function verify(idToken) {
-      statusEl.textContent = '驗證教師身分中…';
+      statusEl.textContent = '驗證教師身分中…(可能需要幾秒)';
+      buttonEl.hidden = true; // 驗證中不讓人重複點登入
       try {
         const { email } = await callTeacherApi({ apiUrl, idToken, action: 'teacher-check' });
         store(idToken);
@@ -80,6 +81,7 @@ export function requireTeacher({ apiUrl, clientId }) {
         return true;
       } catch (err) {
         store(null);
+        buttonEl.hidden = false;
         statusEl.textContent = err instanceof TeacherApiError ? err.message : '驗證失敗,請重新整理頁面再試';
         return false;
       }
