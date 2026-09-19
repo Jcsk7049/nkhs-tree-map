@@ -14,12 +14,14 @@ export function nearestTrees(trees, pos, n = 5) {
   if (!(n > 0)) return [];
   return trees
     .map((t) => ({ ...t, meters: distanceMeters(pos, t) }))
-    .sort((p, q) => p.meters - q.meters || Number(p.no) - Number(q.no))
+    .filter((t) => Number.isFinite(t.meters))
+    .sort((p, q) => p.meters - q.meters || (Number(p.no) - Number(q.no)) || String(p.no).localeCompare(String(q.no)))
     .slice(0, n);
 }
 
 export function formatDistance(meters) {
-  if (meters >= 1000) return `約 ${(Math.round(meters / 100) / 10).toFixed(1)} 公里`;
   if (meters < 10) return `約 ${Math.max(1, Math.round(meters))} 公尺`;
-  return `約 ${Math.round(meters / 5) * 5} 公尺`;
+  const r = Math.round(meters / 5) * 5;
+  if (r >= 1000) return `約 ${(Math.round(meters / 100) / 10).toFixed(1)} 公里`;
+  return `約 ${r} 公尺`;
 }
