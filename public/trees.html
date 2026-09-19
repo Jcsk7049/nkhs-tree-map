@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>選一棵樹</title>
+  <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; font-family: sans-serif; }
+    body { display: flex; flex-direction: column; }
+    [hidden] { display: none !important; }
+    #bar { padding: 8px 10px; background: #fff; border-bottom: 1px solid #ccc; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
+    #bar button { font-size: 15px; padding: 8px 12px; cursor: pointer; }
+    #locate { background: #2e7d32; color: #fff; border: 0; border-radius: 4px; }
+    .legend { display: inline-flex; align-items: center; gap: 4px; color: #444; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; border: 2px solid #fff; box-shadow: 0 0 0 1px #888; }
+    #message { color: #b26a00; padding: 0 10px 6px; font-size: 14px; background: #fff; min-height: 1.3em; }
+    #message.error { color: #c62828; }
+    #offline { background: #fff3e0; border: 1px solid #ef6c00; color: #a34700; padding: 8px 12px; font-size: 14px; }
+    #map { flex: 1; min-height: 0; }
+    #nearby { background: #fff; border-top: 1px solid #ccc; max-height: 38%; overflow: auto; }
+    #nearby h2 { font-size: 15px; margin: 8px 10px 4px; }
+    #nearby ul { list-style: none; margin: 0; padding: 0; }
+    #nearby li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-top: 1px solid #eee; font-size: 15px; }
+    #nearby li button, .popup button { font-size: 14px; padding: 6px 10px; cursor: pointer; background: #2e7d32; color: #fff; border: 0; border-radius: 4px; }
+    .popup button { display: block; width: 100%; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="offline" hidden>目前沒有網路,無法顯示地圖。請直接掃樹上的 QRCode 開始量測。</div>
+  <div id="bar">
+    <button type="button" id="locate">我的位置</button>
+    <span class="legend"><span class="dot" style="background:#2e7d32"></span>已量測</span>
+    <span class="legend"><span class="dot" style="background:#9e9e9e"></span>尚未量測</span>
+  </div>
+  <div id="message"></div>
+  <div id="map"></div>
+  <section id="nearby" hidden>
+    <h2>離我最近的樹</h2>
+    <ul id="nearby-list"></ul>
+  </section>
+
+  <script src="./vendor/leaflet/leaflet.js"></script>
+  <script type="module">
+    import { API_URL } from '../src/config.js';
+    import { nearestTrees, formatDistance } from '../src/nearby.js';
+    import { matchSummary } from '../src/heightColors.js';
+    import { buildHash } from '../src/appShell.js';
+    import { isEmbedded } from '../src/embed.js';
+
+    const MEASURED_COLOR = '#2e7d32';
+    const UNMEASURED_COLOR = '#9e9e9e';
+    const GPS_HINT = '定位可能不準(樓間或樹冠下可能偏差 10~30 公尺),請核對樹種再量測。';
+
+    const messageEl = document.getElementById('message');
+    const offlineEl = document.getElementById('offline');
+    const locateBtn = document.getElementById('locate');
+    const nearbyEl = document.getElementById('nearby');
+    const nearbyList = document.getElementById('nearby-list');
+
+    function say(text, isError = false) {
+      messageEl.textContent = text;
+      messageEl.className = isError ? 'error' : '';
+    }
+
+    function updateOffline() {
+      offlineEl.hidden = navigator.onLine;
+    }
+    window.addEventListener('online', updateOffline);
+    window.addEventListener('offline', updateOffline);
+    updateOffline();
+
+    // 選樹:殼層內嵌時請殼層切到「量測」分頁;獨立開啟時直接進量測頁。
+    function selectTree(no) {
+      if (isEmbedded(window.location.search) && window.top !== window) {
+        window.top.location.hash = buildHash('student', 'measure', { treeId: no });
+      } else {
+        window.location.href = `./tree.html?treeId=${encodeURIComponent(no)}`;
+      }
+    }
+
+    const map = L.map('map', { preferCanvas: true, maxZoom: 21, zoomSnap: 0.5 });
+    const NLSC = 'https://wmts.nlsc.gov.tw/wmts';
+    L.tileLayer(`${NLSC}/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}`, {
+      maxNativeZoom: 19, maxZoom: 21, attribution: '© 內政部國土測繪中心',
+    }).addTo(map);
+
+    let trees = [];
+    let measurements = new Map();
+    const markers = new Map();
+    const markerLayer = L.layerGroup().addTo(map);
+
+    function popupFor(tree) {
+      const box = document.createElement('div');
+      box.className = 'popup';
+      const title = document.createElement('strong');
+      title.textContent = `${tree.no}｜${tree.sp}`;
+      box.append(title);
+      const m = measurements.get(tree.no);
+      const info = document.createElement('div');
+      info.textContent = m ? `最新樹高 ${m.height} 公尺` : '還沒有人量過';
+      box.append(info);
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.textContent = '量測這棵';
+      go.addEventListener('click', () => selectTree(tree.no));
+      box.append(go);
+      return box;
+    }
+
+    function styleFor(no) {
+      const measured = measurements.has(no);
+      const color = measured ? MEASURED_COLOR : UNMEASURED_COLOR;
+      return { radius: 6, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 0.95 };
+    }
+
+    function renderTrees() {
+      markerLayer.clearLayers();
+      markers.clear();
+      for (const tree of trees) {
+        const marker = L.circleMarker([tree.y, tree.x], styleFor(tree.no));
+        marker.bindPopup(() => popupFor(tree));
+        marker.addTo(markerLayer);
+        markers.set(tree.no, marker);
+      }
+    }
+
+    async function loadSummary() {
+      if (!API_URL || API_URL.indexOf('PASTE_') === 0) return;
+      try {
+        const res = await fetch(`${API_URL}?action=summary`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        if (body.status !== 'ok') throw new Error(body.error || '後端回應異常');
+        measurements = matchSummary(trees, body.trees).byNo;
+        for (const [no, marker] of markers) marker.setStyle(styleFor(no));
+      } catch (err) {
+        say(`量測狀態載入失敗(地圖仍可使用):${err.message}`, true);
+      }
+    }
+
+    let youMarker = null;
+    let accuracyCircle = null;
+
+    function showNearby(pos) {
+      nearbyList.replaceChildren();
+      for (const t of nearestTrees(trees, pos, 5)) {
+        const li = document.createElement('li');
+        const label = document.createElement('span');
+        label.textContent = `${t.no}｜${t.sp}(${formatDistance(t.meters)})`;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = '量測這棵';
+        btn.addEventListener('click', () => selectTree(t.no));
+        li.append(label, btn);
+        nearbyList.append(li);
+      }
+      nearbyEl.hidden = false;
+    }
+
+    const GEO_ERRORS = {
+      1: '沒有取得定位權限。請在瀏覽器允許定位,或直接在地圖上點選樹。',
+      2: '目前無法取得位置。請直接在地圖上點選樹。',
+      3: '定位逾時。請再按一次「我的位置」,或直接在地圖上點選樹。',
+    };
+
+    locateBtn.addEventListener('click', () => {
+      if (!('geolocation' in navigator)) {
+        say('這個瀏覽器不支援定位,請直接在地圖上點選樹。', true);
+        return;
+      }
+      locateBtn.disabled = true;
+      say('定位中…');
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          locateBtn.disabled = false;
+          const pos = { x: p.coords.longitude, y: p.coords.latitude };
+          if (youMarker) youMarker.remove();
+          if (accuracyCircle) accuracyCircle.remove();
+          youMarker = L.circleMarker([pos.y, pos.x], { radius: 8, color: '#fff', weight: 2, fillColor: '#1976d2', fillOpacity: 1 }).addTo(map);
+          accuracyCircle = L.circle([pos.y, pos.x], { radius: p.coords.accuracy || 0, color: '#1976d2', weight: 1, fillOpacity: 0.1 }).addTo(map);
+          map.setView([pos.y, pos.x], 19);
+          showNearby(pos);
+          say(GPS_HINT);
+        },
+        (err) => {
+          locateBtn.disabled = false;
+          say(GEO_ERRORS[err.code] || GEO_ERRORS[2], true);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      );
+    });
+
+    try {
+      const res = await fetch('../data/nkhs-trees.json');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      trees = (await res.json()).trees;
+      map.fitBounds(L.latLngBounds(trees.map((t) => [t.y, t.x])), { padding: [20, 20] });
+      renderTrees();
+      loadSummary();
+    } catch (err) {
+      say(`樹木資料載入失敗:${err.message}。請直接掃樹上的 QRCode。`, true);
+    }
+  </script>
+</body>
+</html>
