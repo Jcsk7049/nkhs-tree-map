@@ -65,3 +65,12 @@ git push -u origin master
 - 只依官方樹號對應;Sheet 裡對不到官方樹號的資料(如測試用的 `A-023`)不會出現在地圖
 - `API_URL` 在 `public/tree.html` 與 `public/map.html` 各有一份,必須相同(`tests/duplication-sync.test.js` 會檢查)
 - 更新 `apps-script/Code.gs` 後,**必須在 Apps Script 重新部署新版本**(部署 → 管理部署作業 → 編輯 → 新版本),Web App 才會用新程式
+
+## 歷年趨勢圖(量測頁下方)
+
+- 學生掃 QR 進入 `tree.html?treeId=<官方樹號>`,表單下方會顯示「這棵樹的歷年量測」:樹高、樹圍兩張折線圖 + 最近 5 筆表格
+- 資料來源:Apps Script 公開端點 `GET <Web App URL>?action=history&treeId=<樹號>`(**不需登入**、最多最近 200 筆、**不含姓名/座號/紀錄編號**),每棵樹各自快取 5 分鐘,該樹有新量測寫入時自動清除該樹快取
+- 每筆量測一個淡色圓點;同一天多筆取**當天中位數**畫折線與實心點(單筆量錯不會拉歪折線)。日期以台灣時間(UTC+8)計
+- 送出成功後圖會自動重新載入;離線或載入失敗只在該區顯示一行小字,**不影響填表與離線暫存**
+- 圖為手刻 SVG,無外部函式庫;新增的 `src/trend.js`、`src/trendView.js` 已加入離線快取清單,快取版本為 `tree-map-v4`
+- 更新 `Code.gs` 後同樣要在 Apps Script **重新部署新版本**

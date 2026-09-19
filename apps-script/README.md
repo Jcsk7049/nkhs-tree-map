@@ -123,6 +123,8 @@ Google ID Token 約 1 小時後過期。若學生離線超過一小時才恢復�
 - [ ] 對 Web App URL 加上 `?treeId=A-023&idToken=<ID_TOKEN>` 送出 GET,確認回傳 `{"status":"ok","records":[...]}` 且內容與 Sheet 中該樹編號的所有紀錄一致
 - [ ] **(地圖著色用的公開摘要)** 直接在瀏覽器開 `<Web App URL>?action=summary`(**不帶任何 token**),確認回傳 `{"status":"ok","generatedAt":...,"trees":[{"no":"43667","height":...,"girth":...,"at":...,"n":...}]}`,且內容**只有**樹號/樹高/樹圍/時間/筆數,**沒有姓名、座號**
 - [ ] 送出一筆新量測後,**立刻**重新整理 `?action=summary`,應馬上看到新資料(寫入會清掉 5 分鐘快取,不必等)
+- [ ] **(歷年趨勢圖用)** 直接開 `<Web App URL>?action=history&treeId=43667`(不帶 token),確認回傳 `{"status":"ok","treeId":"43667","points":[{"at":...,"height":...,"girth":...}]}`,依時間由舊到新,**只有**時間/樹高/樹圍,沒有姓名、座號、紀錄編號
+- [ ] `?action=history`(不帶 treeId)應回 `{"status":"error","code":"VALIDATION_FAILED",...}`;沒量測過的樹號回 `"points":[]`
 
 ### 測試 POST 範例(瀏覽器 devtools console)
 

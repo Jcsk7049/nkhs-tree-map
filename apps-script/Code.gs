@@ -302,7 +302,7 @@ function doPost(e) {
       lock.releaseLock();
     }
 
-    invalidateSummaryCache();
+    invalidateCachesFor(data.treeId);
     return jsonOutput({ status: 'ok' });
   } catch (err) {
     // 後端自身出錯(例如 Sheet 暫時鎖住)屬暫時性問題,回可重試的代碼。
@@ -318,42 +318,70 @@ var COLUMN_HEIGHT = 7;
 var COLUMN_GIRTH = 8;
 var SUMMARY_CACHE_KEY = 'tree-summary-v1';
 var SUMMARY_CACHE_SECONDS = 300;
+var HISTORY_CACHE_PREFIX = 'tree-history-v1:';
+var MAX_HISTORY_POINTS = 200;
+var MAX_TREE_ID_LENGTH = 40;
 
 /**
  * 把「量測紀錄」的資料列(不含標題列)彙整成每棵樹一筆:最新樹高、樹圍、時間、有效筆數。
  * 「最新」以量測時間戳為準(ISO 字串可直接比大小),與列的先後順序無關。
  * 樹高不是正數的列(空白、0、亂填)略過。**刻意不回傳姓名/座號**,這份摘要是公開的。
  */
+function parseMeasurementRow(row) {
+  var rawNo = row[COLUMN_TREE_ID - 1];
+  var no = String(rawNo === null || rawNo === undefined ? '' : rawNo).trim();
+  var height = Number(row[COLUMN_HEIGHT - 1]);
+  if (no === '' || !(height > 0)) {
+    return null;
+  }
+  var rawAt = row[COLUMN_TIMESTAMP - 1];
+  var at = rawAt instanceof Date ? rawAt.toISOString() : String(rawAt);
+  var girthRaw = row[COLUMN_GIRTH - 1];
+  var girth = girthRaw === '' || girthRaw === null || girthRaw === undefined ? NaN : Number(girthRaw);
+  return { no: no, height: height, girth: girth > 0 ? girth : null, at: at };
+}
+
 function summarizeRows(rows) {
   var byTree = {};
   var order = [];
   for (var i = 0; i < rows.length; i++) {
-    var row = rows[i];
-    var no = String(row[COLUMN_TREE_ID - 1] === null || row[COLUMN_TREE_ID - 1] === undefined ? '' : row[COLUMN_TREE_ID - 1]).trim();
-    var height = Number(row[COLUMN_HEIGHT - 1]);
-    if (no === '' || !(height > 0)) {
+    var m = parseMeasurementRow(rows[i]);
+    if (!m) {
       continue;
     }
-    var rawAt = row[COLUMN_TIMESTAMP - 1];
-    var at = rawAt instanceof Date ? rawAt.toISOString() : String(rawAt);
-    var girthRaw = row[COLUMN_GIRTH - 1];
-    var girth = girthRaw === '' || girthRaw === null || girthRaw === undefined ? NaN : Number(girthRaw);
-
-    var entry = byTree[no];
+    var entry = byTree[m.no];
     if (!entry) {
-      entry = { no: no, height: height, girth: girth > 0 ? girth : null, at: at, n: 0 };
-      byTree[no] = entry;
-      order.push(no);
-    } else if (at > entry.at) {
-      entry.height = height;
-      entry.girth = girth > 0 ? girth : null;
-      entry.at = at;
+      entry = { no: m.no, height: m.height, girth: m.girth, at: m.at, n: 0 };
+      byTree[m.no] = entry;
+      order.push(m.no);
+    } else if (m.at > entry.at) {
+      entry.height = m.height;
+      entry.girth = m.girth;
+      entry.at = m.at;
     }
     entry.n += 1;
   }
   return order.map(function (no) {
     return byTree[no];
   });
+}
+
+/**
+ * 單棵樹的歷年量測:{at, height, girth},依時間由舊到新,最多最近 MAX_HISTORY_POINTS 筆。
+ * 和摘要一樣**刻意不回傳姓名/座號/紀錄編號**,這是公開端點。
+ */
+function historyRows(rows, treeId) {
+  var points = [];
+  for (var i = 0; i < rows.length; i++) {
+    var m = parseMeasurementRow(rows[i]);
+    if (m && m.no === treeId) {
+      points.push({ at: m.at, height: m.height, girth: m.girth });
+    }
+  }
+  points.sort(function (a, b) {
+    return a.at < b.at ? -1 : a.at > b.at ? 1 : 0;
+  });
+  return points.slice(-MAX_HISTORY_POINTS);
 }
 
 function summaryOutput() {
@@ -378,11 +406,33 @@ function summaryOutput() {
   return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
 }
 
-function invalidateSummaryCache() {
+function historyOutput(treeId) {
+  var cache = CacheService.getScriptCache();
+  var key = HISTORY_CACHE_PREFIX + treeId;
+  var cached = cache.get(key);
+  if (cached) {
+    return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RECORDS);
+  var rows = sheet.getDataRange().getValues().slice(1);
+  var text = JSON.stringify({ status: 'ok', treeId: treeId, points: historyRows(rows, treeId) });
   try {
-    CacheService.getScriptCache().remove(SUMMARY_CACHE_KEY);
+    cache.put(key, text, SUMMARY_CACHE_SECONDS);
   } catch (err) {
-    // 清不掉最多讓地圖晚 5 分鐘看到新資料,不能因此讓寫入失敗。
+    // 快取放不進去只是變慢,不影響回應。
+  }
+  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
+}
+
+// 有新量測寫入:摘要一定過期;該棵樹的歷史也過期(其他樹不受影響)。
+function invalidateCachesFor(treeId) {
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.remove(SUMMARY_CACHE_KEY);
+    cache.remove(HISTORY_CACHE_PREFIX + String(treeId).trim());
+  } catch (err) {
+    // 清不掉最多讓畫面晚 5 分鐘看到新資料,不能因此讓寫入失敗。
   }
 }
 
@@ -390,6 +440,13 @@ function doGet(e) {
   try {
     if (e && e.parameter && e.parameter.action === 'summary') {
       return summaryOutput();
+    }
+    if (e && e.parameter && e.parameter.action === 'history') {
+      var historyTreeId = String(e.parameter.treeId === undefined || e.parameter.treeId === null ? '' : e.parameter.treeId).trim();
+      if (historyTreeId === '' || historyTreeId.length > MAX_TREE_ID_LENGTH) {
+        return errorOutput('VALIDATION_FAILED', '缺少或不合法的 treeId');
+      }
+      return historyOutput(historyTreeId);
     }
 
     // GET 只能把 token 放在 query string(會留在瀏覽器/伺服器記錄中)。

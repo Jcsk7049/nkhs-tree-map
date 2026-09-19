@@ -20,6 +20,8 @@
               background: #fff3e0; border: 1px solid #ef6c00; color: #e65100; }
     #signin { margin: 16px 0; padding: 12px; border: 1px dashed #999; border-radius: 4px; }
     #signin-status { margin-bottom: 8px; color: #555; }
+    #history { margin-top: 28px; border-top: 1px solid #ddd; padding-top: 8px; }
+    #history h2 { font-size: 18px; margin: 8px 0; }
   </style>
 </head>
 <body>
@@ -42,11 +44,17 @@
   </form>
   <div id="result"></div>
 
+  <section id="history" hidden>
+    <h2>這棵樹的歷年量測</h2>
+    <div id="history-body">載入中…</div>
+  </section>
+
   <script type="module">
     import { validateMeasurementInput } from '../src/calc.js';
     import { submitMeasurement, syncPendingQueue } from '../src/submit.js';
     import { buildMeasurementRecord, getTreeIdFromUrl } from '../src/treePage.js';
     import { listPending } from '../src/offlineQueue.js';
+    import { fetchHistory, renderHistory } from '../src/trendView.js';
 
     // === 部署前必須由人類填入的設定(見 DEPLOY.md / apps-script/README.md) ===
     const API_URL = 'https://script.google.com/macros/s/AKfycbwzmAZenLHps_WO6345Q3rL6Tp0KlKWZcSv-Z1RnYqrB_ABC8X8IhZU9HWXRiFYcLE4/exec';
@@ -112,6 +120,21 @@
     }
 
     const treeId = getTreeIdFromUrl(window.location.search);
+
+    // 歷年趨勢圖:純讀取、不需登入。載入失敗(含離線)只影響這一區,不影響填表與離線暫存。
+    const historySection = document.getElementById('history');
+    const historyBody = document.getElementById('history-body');
+    async function loadHistory() {
+      if (NOT_CONFIGURED || !treeId) return;
+      historySection.hidden = false;
+      try {
+        renderHistory(historyBody, await fetchHistory(API_URL, treeId, fetch));
+      } catch (err) {
+        historyBody.textContent = navigator.onLine
+          ? '暫時無法載入歷年量測(不影響填寫)'
+          : '目前離線,無法載入歷年量測(不影響填寫)';
+      }
+    }
 
     /** 表單只有在「設定完成 + 有樹編號 + 已登入」三個條件都成立時才可填寫。 */
     function refreshFormState() {
@@ -322,6 +345,7 @@
         if (status === 'sent') {
           hideBanner();
           showResult(`送出成功!計算樹高:${record.calculatedHeight} 公尺`);
+          loadHistory();
         } else if (status === 'queued') {
           showResult(
             `已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`
@@ -351,7 +375,10 @@
         return;
       }
       flushPendingQueue();
+      loadHistory();
     });
+
+    loadHistory();
   </script>
 </body>
 </html>

@@ -195,3 +195,94 @@ describe('Code.gs doPost 寫入後讓摘要快取失效', () => {
     expect(env.rows).toHaveLength(2); // 標題列 + 1 筆
   });
 });
+
+describe('Code.gs doGet?action=history(單棵樹歷年量測,公開)', () => {
+  const historyOf = (env, treeId) => env.json(env.sandbox.doGet({ parameter: { action: 'history', treeId } }));
+  const data = [
+    row('43667', '2026-09-19T03:00:00.000Z', '王小明', '301-12', 12.5, 90, 'i3'),
+    row('43667', '2026-09-01T01:00:00.000Z', '李小華', '302-03', 10, 70, 'i1'),
+    row('43020', '2026-09-05T01:00:00.000Z', '陳大同', '303-05', 6, 40, 'i4'),
+    row('43667', '2026-09-10T01:00:00.000Z', '林小美', '304-07', 11, '', 'i2'),
+    row('43667', '2026-09-12T01:00:00.000Z', '壞資料', '305-09', 0, 50, 'i5'),
+  ];
+
+  it('只回該棵樹的量測,依時間由舊到新,格式為 {at, height, girth}', () => {
+    const env = loadScript(data);
+    const body = historyOf(env, '43667');
+    expect(body.status).toBe('ok');
+    expect(body.treeId).toBe('43667');
+    expect(body.points).toEqual([
+      { at: '2026-09-01T01:00:00.000Z', height: 10, girth: 70 },
+      { at: '2026-09-10T01:00:00.000Z', height: 11, girth: null },
+      { at: '2026-09-19T03:00:00.000Z', height: 12.5, girth: 90 },
+    ]);
+  });
+
+  it('不需登入,且回應不含姓名/座號/紀錄編號(個資)', () => {
+    const env = loadScript(data);
+    const text = env.sandbox.doGet({ parameter: { action: 'history', treeId: '43667' } }).text;
+    expect(env.stats.fetches).toBe(0);
+    for (const secret of ['王小明', '李小華', '林小美', '301-12', '302-03', 'i1', 'i2', 'i3']) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it('沒有量測的樹回傳空清單(不是錯誤)', () => {
+    expect(historyOf(loadScript(data), '99999').points).toEqual([]);
+  });
+
+  it('最多回最近 200 筆(舊的被丟掉)', () => {
+    const many = Array.from({ length: 250 }, (_, i) =>
+      row('7', `2026-01-01T00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`, 'x', '1', 5 + (i % 10), 30, `id${i}`),
+    );
+    const body = historyOf(loadScript(many), '7');
+    expect(body.points).toHaveLength(200);
+    expect(body.points[0].at).toBe('2026-01-01T00:00:50.000Z'); // 第 51 筆(index 50)
+  });
+
+  it('treeId 缺少、空白或超過 40 字回 VALIDATION_FAILED,且不讀 Sheet', () => {
+    for (const bad of [undefined, '', '   ', 'x'.repeat(41)]) {
+      const env = loadScript(data);
+      const body = historyOf(env, bad);
+      expect(body.status).toBe('error');
+      expect(body.code).toBe('VALIDATION_FAILED');
+      expect(env.stats.sheetReads).toBe(0);
+    }
+  });
+
+  it('每棵樹各自快取:同一棵第二次不讀 Sheet,換一棵才讀', () => {
+    const env = loadScript(data);
+    historyOf(env, '43667');
+    historyOf(env, '43667');
+    expect(env.stats.sheetReads).toBe(1);
+    historyOf(env, '43020');
+    expect(env.stats.sheetReads).toBe(2);
+  });
+
+  it('寫入某棵樹的新量測後,只有那一棵的歷史快取失效', () => {
+    const env = loadScript(data);
+    historyOf(env, '43667');
+    historyOf(env, '43020');
+    expect(env.stats.sheetReads).toBe(2);
+
+    const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const idToken = `${b64url({ alg: 'none' })}.${b64url({ exp: Math.floor(Date.now() / 1000) + 3600 })}.sig`;
+    const res = env.json(
+      env.sandbox.doPost({
+        postData: {
+          contents: JSON.stringify({
+            treeId: '43667', timestamp: '2026-09-20T01:00:00.000Z', studentName: '新', studentClassNo: '1',
+            angleDeg: 45, distanceM: 10, girthCm: 95, calculatedHeight: 13, clientRecordId: 'hist-new', idToken,
+          }),
+        },
+      }),
+    );
+    expect(res.status).toBe('ok');
+
+    const updated = historyOf(env, '43667');
+    expect(updated.points[updated.points.length - 1].height).toBe(13);
+    expect(env.stats.sheetReads).toBe(3); // 43667 重讀
+    historyOf(env, '43020');
+    expect(env.stats.sheetReads).toBe(3); // 43020 仍走快取
+  });
+});
