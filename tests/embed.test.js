@@ -1,19 +1,14 @@
 // tests/embed.test.js
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { isEmbedded, withEmbed, applyEmbedMode } from '../src/embed.js';
+import { isEmbedded, applyEmbedMode } from '../src/embed.js';
 
-describe('isEmbedded / withEmbed', () => {
+describe('isEmbedded', () => {
   it('只有 embed=1 才算內嵌', () => {
     expect(isEmbedded('?embed=1')).toBe(true);
     expect(isEmbedded('?a=1&embed=1')).toBe(true);
     expect(isEmbedded('?embed=0')).toBe(false);
     expect(isEmbedded('')).toBe(false);
-  });
-  it('內嵌時導覽網址保留 embed=1,非內嵌時原樣', () => {
-    expect(withEmbed('./qrcodes.html', '?embed=1')).toBe('./qrcodes.html?embed=1');
-    expect(withEmbed('./tree.html?treeId=1', '?embed=1')).toBe('./tree.html?treeId=1&embed=1');
-    expect(withEmbed('./qrcodes.html', '')).toBe('./qrcodes.html');
   });
 });
 
@@ -46,4 +41,15 @@ describe('老師頁都已套用內嵌模式', () => {
       expect(html).toMatch(/data-embed-hide/);
     });
   }
+});
+
+describe('map.html 內嵌時的「產生標籤」', () => {
+  const html = readFileSync(new URL('../public/map.html', import.meta.url), 'utf8');
+  it('內嵌時改驅動殼層(window.top 的 #/teacher/labels),不自行導航 iframe', () => {
+    const handler = html.slice(html.indexOf("getElementById('make-labels')"));
+    expect(handler).toMatch(/isEmbedded\(window\.location\.search\)/);
+    expect(handler).toMatch(/window\.top/);
+    expect(handler).toMatch(/buildHash\('teacher', 'labels'\)|#\/teacher\/labels/);
+    expect(html).not.toMatch(/withEmbed/);
+  });
 });

@@ -25,3 +25,13 @@ describe('app.html 殼層', () => {
     expect(html).toMatch(/serviceWorker\.register\('\.\/sw\.js'\)/);
   });
 });
+
+describe('app.html 離線提示', () => {
+  it('有 #offline 提示,並隨 online/offline 事件與 route 更新', () => {
+    expect(html).toMatch(/id="offline"/);
+    expect(html).toContain('老師功能需要連網');
+    expect(html).toMatch(/navigator\.onLine/);
+    expect(html).toMatch(/addEventListener\('online'/);
+    expect(html).toMatch(/addEventListener\('offline'/);
+  });
+});

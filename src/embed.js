@@ -4,11 +4,6 @@ export function isEmbedded(search) {
   return new URLSearchParams(search || '').get('embed') === '1';
 }
 
-export function withEmbed(relativeUrl, search) {
-  if (!isEmbedded(search)) return relativeUrl;
-  return relativeUrl + (relativeUrl.includes('?') ? '&' : '?') + 'embed=1';
-}
-
 export function applyEmbedMode(doc, search) {
   if (!isEmbedded(search)) return;
   const style = doc.createElement('style');

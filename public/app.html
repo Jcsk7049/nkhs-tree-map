@@ -21,6 +21,7 @@
     .install-hint { color: #555; font-size: 13px; line-height: 1.6; margin-top: 24px; }
     #frames { flex: 1; position: relative; min-height: 0; }
     #frames iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+    #offline { background: #fff3e0; border-bottom: 1px solid #ef6c00; color: #a34700; padding: 8px 12px; font-size: 14px; }
     #placeholder { padding: 32px 16px; color: #555; line-height: 1.7; }
     #tabbar { display: flex; border-top: 1px solid #ccc; background: #f7f7f7; padding-bottom: env(safe-area-inset-bottom); }
     #tabbar button { flex: 1; padding: 12px 4px; border: 0; background: none; font: inherit; font-size: 15px; color: #555; cursor: pointer; }
@@ -46,6 +47,7 @@
     </main>
   </section>
 
+  <div id="offline" hidden>老師功能需要連網,請連上網路後再使用。</div>
   <div id="frames" hidden>
     <div id="placeholder" hidden>請掃樹上貼的 QRCode 開始量測。(之後版本會加入直接選樹。)</div>
   </div>
@@ -90,8 +92,14 @@
       tabbar.appendChild(back);
     }
 
+    const offlineEl = document.getElementById('offline');
+    let currentRole = null;
+    function updateOffline() { offlineEl.hidden = !(currentRole === 'teacher' && !navigator.onLine); }
+
     function route() {
       const { role, tab, treeId } = parseHash(window.location.hash);
+      currentRole = role || null;
+      updateOffline();
       if (!role) return showHome();
 
       remember(role);
@@ -120,6 +128,8 @@
       if (btn) window.location.hash = `#/${btn.dataset.role}`;
     });
     window.addEventListener('hashchange', route);
+    window.addEventListener('online', updateOffline);
+    window.addEventListener('offline', updateOffline);
     route();
 
     if ('serviceWorker' in navigator) {

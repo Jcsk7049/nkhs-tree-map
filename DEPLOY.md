@@ -97,3 +97,13 @@ git push -u origin master
 
 ### 已退休
 `TEST_MODE`、`TEST_ALLOWED_EMAILS`、網域(`hd`)檢查、學生端 Google 登入與「登入沿用規則」(`src/session.js` 現只給教師頁判斷登入是否過期)、`src/authDomain.js`。
+
+## 安裝成 App
+- 入口網址:`https://jcsk7049.github.io/nkhs-tree-map/public/app.html`(統一入口:選身分 + 底部導覽)
+- Android Chrome:選單 → 安裝應用程式
+- iPhone/iPad Safari:分享 → 加入主畫面
+- 已安裝舊版(起點 `tree.html`)的使用者需**重新安裝**才會用到新殼層(manifest 的 `id` 改成 `./app.html`)
+- 離線:老師分頁需連網;學生量測頁可離線
+- 已知小限制:
+  - 殼層內按硬體返回鍵會直接離開 App
+  - 地圖「開啟量測頁」會另開瀏覽器分頁
