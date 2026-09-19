@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#2e7d32" />
   <title>選一棵樹</title>
   <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
   <style>
@@ -73,10 +74,14 @@
     // 選樹:殼層內嵌時請殼層切到「量測」分頁;獨立開啟時直接進量測頁。
     function selectTree(no) {
       if (isEmbedded(window.location.search) && window.top !== window) {
-        window.top.location.hash = buildHash('student', 'measure', { treeId: no });
-      } else {
-        window.location.href = `./tree.html?treeId=${encodeURIComponent(no)}`;
+        try {
+          window.top.location.hash = buildHash('student', 'measure', { treeId: no });
+          return;
+        } catch (e) {
+          // 跨來源等原因無法操作殼層,改直接導向
+        }
       }
+      window.location.href = `./tree.html?treeId=${encodeURIComponent(no)}`;
     }
 
     const map = L.map('map', { preferCanvas: true, maxZoom: 21, zoomSnap: 0.5 });
@@ -177,10 +182,11 @@
           const pos = { x: p.coords.longitude, y: p.coords.latitude };
           if (youMarker) youMarker.remove();
           if (accuracyCircle) accuracyCircle.remove();
-          youMarker = L.circleMarker([pos.y, pos.x], { radius: 8, color: '#fff', weight: 2, fillColor: '#1976d2', fillOpacity: 1 }).addTo(map);
-          accuracyCircle = L.circle([pos.y, pos.x], { radius: p.coords.accuracy || 0, color: '#1976d2', weight: 1, fillOpacity: 0.1 }).addTo(map);
-          map.setView([pos.y, pos.x], 19);
+          youMarker = L.circleMarker([pos.y, pos.x], { radius: 8, color: '#fff', weight: 2, fillColor: '#1976d2', fillOpacity: 1, interactive: false }).addTo(map);
+          accuracyCircle = L.circle([pos.y, pos.x], { radius: p.coords.accuracy || 0, color: '#1976d2', weight: 1, fillOpacity: 0.1, interactive: false }).addTo(map);
           showNearby(pos);
+          map.invalidateSize();
+          map.setView([pos.y, pos.x], 19);
           say(GPS_HINT);
         },
         (err) => {
@@ -195,9 +201,13 @@
       const res = await fetch('../data/nkhs-trees.json');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       trees = (await res.json()).trees;
-      map.fitBounds(L.latLngBounds(trees.map((t) => [t.y, t.x])), { padding: [20, 20] });
-      renderTrees();
-      loadSummary();
+      if (trees.length === 0) {
+        say('樹木資料是空的。請直接掃樹上的 QRCode。', true);
+      } else {
+        map.fitBounds(L.latLngBounds(trees.map((t) => [t.y, t.x])), { padding: [20, 20] });
+        renderTrees();
+        loadSummary();
+      }
     } catch (err) {
       say(`樹木資料載入失敗:${err.message}。請直接掃樹上的 QRCode。`, true);
     }

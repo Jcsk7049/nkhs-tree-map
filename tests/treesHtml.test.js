@@ -39,5 +39,20 @@ describe('trees.html 學生選樹頁(原始碼層級檢查)', () => {
   it('語言、viewport、theme-color 正確', () => {
     expect(html).toMatch(/<html lang="zh-Hant-TW"/);
     expect(html).toMatch(/name="viewport"/);
+    expect(html).toMatch(/name="theme-color"/);
+  });
+  it('定位點與精度圈不攔截點擊(interactive: false)', () => {
+    const dot = html.match(/youMarker = L\.circleMarker\([^;]*;/)[0];
+    const circle = html.match(/accuracyCircle = L\.circle\([^;]*;/)[0];
+    expect(dot).toMatch(/interactive:\s*false/);
+    expect(circle).toMatch(/interactive:\s*false/);
+  });
+  it('清單顯示後先 invalidateSize 再 setView', () => {
+    const a = html.indexOf('showNearby(pos);');
+    const b = html.indexOf('map.invalidateSize()');
+    const c = html.indexOf('map.setView([pos.y, pos.x], 19)');
+    expect(a).toBeGreaterThan(-1);
+    expect(b).toBeGreaterThan(a);
+    expect(c).toBeGreaterThan(b);
   });
 });
