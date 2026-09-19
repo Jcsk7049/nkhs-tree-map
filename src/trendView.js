@@ -46,7 +46,10 @@ function buildChart({ title, unit, color }, series) {
     svg.append(label);
   }
   for (const tick of xTicks) {
-    const label = svgEl('text', { x: tick.x, y: height - 8, 'text-anchor': 'middle', 'font-size': 11, fill: '#555' });
+    // 標籤約 34px 寬:貼近左右邊界時改成靠邊對齊,避免被 SVG 邊界切掉。
+    const anchor = tick.x < pad.left + 20 ? 'start' : tick.x > width - pad.right - 20 ? 'end' : 'middle';
+    const x = anchor === 'end' ? width - 2 : anchor === 'start' ? pad.left : tick.x;
+    const label = svgEl('text', { x, y: height - 8, 'text-anchor': anchor, 'font-size': 11, fill: '#555' });
     label.textContent = tick.label;
     svg.append(label);
   }
