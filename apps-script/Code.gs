@@ -480,7 +480,7 @@ function rosterImport(list) {
     var created = [];
     var updated = 0;
     var skipped = [];
-    var seen = {};
+    var seen = Object.create(null);
 
     for (var i = 0; i < list.length; i++) {
       var item = list[i] || {};
@@ -629,7 +629,8 @@ function parseMeasurementRow(row) {
  * 樹高不是正數的列略過。**刻意不回傳姓名/座號**,這份摘要是公開的。
  */
 function summarizeRows(rows) {
-  var byTree = {};
+  // 樹號由學生送出,可能是 __proto__、constructor 這類特殊鍵:一定要用「沒有原型」的物件當 map。
+  var byTree = Object.create(null);
   var order = [];
   for (var i = 0; i < rows.length; i++) {
     var m = parseMeasurementRow(rows[i]);

@@ -522,6 +522,26 @@ describe('Code.gs summarizeRows', () => {
   });
 });
 
+describe('學生可控的樹號不能弄壞摘要(__proto__ / constructor 等特殊鍵)', () => {
+  it('樹號是 __proto__、constructor、toString 時,summarizeRows 仍正常且不污染 Object.prototype', () => {
+    const { sandbox } = loadScript();
+    const result = sandbox.summarizeRows([
+      row('__proto__', '2026-09-19T01:00:00.000Z', 'a', '1', 5, 30, 'a'),
+      row('__proto__', '2026-09-19T02:00:00.000Z', 'a', '1', 6, 31, 'b'),
+      row('constructor', '2026-09-19T01:00:00.000Z', 'a', '1', 7, 32, 'c'),
+      row('toString', '2026-09-19T01:00:00.000Z', 'a', '1', 8, 33, 'd'),
+      row('43667', '2026-09-19T01:00:00.000Z', 'a', '1', 9, 34, 'e'),
+    ]);
+    const byNo = Object.fromEntries(result.map((t) => [t.no, t]));
+    expect(result).toHaveLength(4);
+    expect(byNo['__proto__']).toEqual({ no: '__proto__', height: 6, girth: 31, at: '2026-09-19T02:00:00.000Z', n: 2 });
+    expect(byNo['constructor'].height).toBe(7);
+    expect(byNo['toString'].height).toBe(8);
+    expect(({}).n).toBeUndefined();
+    expect(vm.runInContext('Object.prototype.n', sandbox)).toBeUndefined();
+  });
+});
+
 describe('Code.gs 公開端點:summary / history / 其他 GET', () => {
   const data = [
     row('43667', '2026-09-19T03:00:00.000Z', '王小明', '301-12', 12.5, 90, 'i3'),
