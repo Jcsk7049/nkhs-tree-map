@@ -347,8 +347,14 @@ function errorOutput(code, message) {
 // 量測紀錄(學生寫入)
 // ---------------------------------------------------------------------------
 
-/** 用 clientRecordId 找既有列;找到代表這筆已寫入過(重試/雙擊),不可重複 append。 */
-function hasClientRecordId(sheet, clientRecordId) {
+/** 只往回看最近這麼多列找重複:重送發生在剛寫入之後,不必每次讀完整欄(資料越累積越慢)。 */
+var DEDUPE_WINDOW_ROWS = 2000;
+
+/**
+ * 用 clientRecordId 找既有列;找到代表這筆已寫入過(重試/雙擊),不可重複 append。
+ * lastRow 由呼叫端傳入,同一次請求只問 Sheets 一次「最後一列」。
+ */
+function hasClientRecordId(sheet, clientRecordId, lastRow) {
   if (!clientRecordId) {
     return false;
   }
@@ -356,11 +362,11 @@ function hasClientRecordId(sheet, clientRecordId) {
     console.warn('「量測紀錄」分頁缺少第 ' + COLUMN_CLIENT_RECORD_ID + ' 欄「用戶端紀錄編號」,去重功能已停用');
     return false;
   }
-  var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
     return false;
   }
-  var ids = sheet.getRange(2, COLUMN_CLIENT_RECORD_ID, lastRow - 1, 1).getValues();
+  var firstRow = Math.max(2, lastRow - DEDUPE_WINDOW_ROWS + 1);
+  var ids = sheet.getRange(firstRow, COLUMN_CLIENT_RECORD_ID, lastRow - firstRow + 1, 1).getValues();
   for (var i = 0; i < ids.length; i++) {
     if (String(ids[i][0]) === String(clientRecordId)) {
       return true;
@@ -437,10 +443,12 @@ function handleMeasurement(data) {
     return errorOutput('VALIDATION_FAILED', errors.join('、'));
   }
 
+  var t0 = Date.now();
   var student = verifyStudent(data.studentClassNo, data.studentCode);
   if (!student.ok) {
     return errorOutput(student.code, student.error);
   }
+  var tVerified = Date.now();
 
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RECORDS);
 
@@ -448,15 +456,20 @@ function handleMeasurement(data) {
   // 會雙雙查不到而各寫一列。ScriptLock 讓同一份腳本的請求排隊。
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
+  var tLocked = Date.now();
+  var tChecked = tLocked;
   try {
-    if (hasClientRecordId(sheet, data.clientRecordId)) {
+    var lastRow = sheet.getLastRow();
+    var isDuplicate = hasClientRecordId(sheet, data.clientRecordId, lastRow);
+    tChecked = Date.now();
+    if (isDuplicate) {
       // 已寫入過(雙擊送出或離線佇列重送):不再 append,仍回成功,讓前端把它移出佇列。
       return jsonOutput({ status: 'ok', duplicate: true, studentName: student.name });
     }
 
     // 不用 appendRow:它會讓 Sheets 自動判斷型別,座號 "0312" 會被吞成數字 312。
     // 先把新列前 4 欄設成純文字再寫值。姓名與班級座號一律取名簿裡的,不採用前端傳來的。
-    var newRow = sheet.getLastRow() + 1;
+    var newRow = lastRow + 1;
     sheet.getRange(newRow, 1, 1, 4).setNumberFormat('@');
     sheet.getRange(newRow, 1, 1, 10).setValues([[
       sanitizeCellText(data.treeId),
@@ -474,8 +487,20 @@ function handleMeasurement(data) {
     lock.releaseLock();
   }
 
+  var tWritten = Date.now();
   invalidateCachesFor(data.treeId);
-  return jsonOutput({ status: 'ok', studentName: student.name });
+  var result = { status: 'ok', studentName: student.name };
+  if (data.timing === true) {
+    // 只有請求明確要求才附上各階段耗時(毫秒),用來量測哪一步慢;不含任何個資。
+    result.ms = {
+      verify: tVerified - t0,
+      lock: tLocked - tVerified,
+      dedupe: tChecked - tLocked,
+      write: tWritten - tChecked,
+      total: Date.now() - t0,
+    };
+  }
+  return jsonOutput(result);
 }
 
 // ---------------------------------------------------------------------------
