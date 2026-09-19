@@ -55,6 +55,7 @@
     import { buildMeasurementRecord, getTreeIdFromUrl } from '../src/treePage.js';
     import { listPending } from '../src/offlineQueue.js';
     import { fetchHistory, renderHistory } from '../src/trendView.js';
+    import { decideRestore } from '../src/session.js';
 
     // === 部署前必須由人類填入的設定(見 DEPLOY.md / apps-script/README.md) ===
     const API_URL = 'https://script.google.com/macros/s/AKfycbwzmAZenLHps_WO6345Q3rL6Tp0KlKWZcSv-Z1RnYqrB_ABC8X8IhZU9HWXRiFYcLE4/exec';
@@ -210,13 +211,27 @@
      * 讓學生在校園死角仍能把量測資料填完存進本機佇列,補送時若被判 AUTH_EXPIRED,
      * 資料會留在佇列並提示重新登入,不會遺失。
      */
+    let savedSession = null;
+
+    function applySavedToken(note) {
+      idToken = savedSession.token;
+      signinStatusEl.textContent = `已登入:${savedSession.email || '(帳號不明)'}(${note})`;
+      refreshFormState();
+    }
+
     function restoreSavedToken() {
       try {
         const saved = JSON.parse(localStorage.getItem(TOKEN_STORAGE_KEY) || 'null');
-        if (saved && saved.token) {
-          idToken = saved.token;
-          signinStatusEl.textContent = `已登入:${saved.email || '(帳號不明)'}(沿用上次登入)`;
-          refreshFormState();
+        if (!saved || !saved.token) return;
+        savedSession = saved;
+        const decision = decideRestore({ token: saved.token, online: navigator.onLine, nowMs: Date.now() });
+        if (decision === 'use') {
+          applySavedToken('沿用上次登入');
+        } else if (decision === 'use-offline') {
+          applySavedToken('目前離線,沿用上次登入');
+        } else {
+          // 線上卻已過期:不假裝還在登入,請學生按下方按鈕重新登入(未上傳的紀錄登入後會自動補送)。
+          signinStatusEl.textContent = '登入已過期,請點下方按鈕重新登入。';
         }
       } catch (err) {
         console.warn('[tree-map] 無法讀取上次的登入狀態', err);
@@ -229,9 +244,9 @@
         return;
       }
       if (!window.google || !window.google.accounts || !window.google.accounts.id) {
-        signinStatusEl.textContent = idToken
-          ? signinStatusEl.textContent
-          : '目前無法連上 Google 登入服務(可能離線),請連上網路後重新整理頁面登入。';
+        // 登入元件載不到(離線,或校園網路擋了 Google):有存過登入就沿用,至少能填表存進本機。
+        if (!idToken && savedSession) applySavedToken('無法連上 Google 登入服務,沿用上次登入');
+        else if (!idToken) signinStatusEl.textContent = '目前無法連上 Google 登入服務(可能離線),請連上網路後重新整理頁面登入。';
         return;
       }
       try {

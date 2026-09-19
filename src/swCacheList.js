@@ -10,6 +10,7 @@ export const CACHE_FILES = [
   '../src/offlineQueue.js',
   '../src/submit.js',
   '../src/treePage.js',
+  '../src/session.js',
   '../src/trend.js',
   '../src/trendView.js',
 ];
