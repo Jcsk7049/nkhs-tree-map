@@ -81,6 +81,11 @@
       resultEl.textContent = message;
     }
 
+    function hideResult() {
+      resultEl.style.display = 'none';
+      resultEl.textContent = '';
+    }
+
     function setFormEnabled(enabled) {
       form.querySelectorAll('input, button').forEach((el) => { el.disabled = !enabled; });
     }
@@ -192,6 +197,8 @@
       if (!treeId || NOT_CONFIGURED) {
         return;
       }
+
+      hideResult(); // 舊的「送出成功」不能和這次的錯誤訊息同時顯示
 
       const formValues = {
         studentClassNo: classNoInput.value,
