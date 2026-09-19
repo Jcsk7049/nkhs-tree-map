@@ -8,6 +8,10 @@
   <style>
     html, body { height: 100%; margin: 0; font-family: sans-serif; }
     body { display: flex; flex-direction: column; }
+    #gated { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    [hidden] { display: none !important; }
+    #gate { max-width: 420px; margin: 60px auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; font-family: sans-serif; text-align: center; }
+    #gate-status { color: #555; min-height: 1.4em; }
     #bar { padding: 8px 10px; background: #fff; border-bottom: 1px solid #ccc; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
     #bar select, #bar button { font-size: 15px; padding: 6px 10px; cursor: pointer; }
     #bar button.active { background: #ff6d00; color: #fff; border: 1px solid #c43e00; }
@@ -21,9 +25,18 @@
     .popup button { display: block; width: 100%; margin-top: 6px; padding: 6px; font-size: 14px; cursor: pointer; }
     .popup a { display: block; margin-top: 6px; }
   </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
+  <div id="gate">
+    <h1>教師登入</h1>
+    <p id="gate-status"></p>
+    <div id="gate-button" style="display:flex; justify-content:center"></div>
+    <p style="color:#888; font-size:13px">此頁僅供老師使用。學生請掃樹上的 QRCode。</p>
+  </div>
+  <div id="gated" hidden>
   <div id="bar">
+    <a href="./teacher.html">← 教師端</a>
     <strong>南港高工樹木地圖</strong>
     <label>樹種
       <select id="species-filter"><option value="">全部</option></select>
@@ -44,15 +57,19 @@
   </div>
   <div id="message" role="status"></div>
   <div id="map"></div>
+  </div>
 
   <script src="./vendor/leaflet/leaflet.js"></script>
   <script type="module">
     import { filterBySpecies, speciesSummary, treesInBounds } from '../src/treeData.js';
     import { colorForHeight, heightBands, matchSummary, NO_DATA_COLOR } from '../src/heightColors.js';
+    import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
+    import { requireTeacher } from '../src/teacherGate.js';
+
+    // 教師登入通過、內容顯示後才初始化地圖(Leaflet 需要容器有實際尺寸)。
+    await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
 
     const L = window.L;
-    // 與 tree.html 的 API_URL 必須相同(tests/duplication-sync.test.js 會檢查)。
-    const API_URL = 'https://script.google.com/macros/s/AKfycbwzmAZenLHps_WO6345Q3rL6Tp0KlKWZcSv-Z1RnYqrB_ABC8X8IhZU9HWXRiFYcLE4/exec';
     const KEY_POSTED = 'tree-map-posted';
     const KEY_LIST = 'tree-map-print-list';
 

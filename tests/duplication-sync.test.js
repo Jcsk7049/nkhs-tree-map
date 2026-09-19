@@ -57,14 +57,28 @@ describe('tree.html 的模組相依都必須在離線快取清單內', () => {
   });
 });
 
-describe('兩個頁面的後端網址 API_URL 不得漂移', () => {
-  const apiUrlOf = (html) => {
-    const m = html.match(/const API_URL = '([^']+)'/);
-    if (!m) throw new Error('找不到 API_URL');
-    return m[1];
-  };
+describe('後端網址與用戶端 ID 只在 src/config.js 一處設定', () => {
+  const pages = ['tree.html', 'map.html', 'qrcodes.html', 'teacher.html', 'roster.html'];
 
-  it('map.html 與 tree.html 的 API_URL 必須相同', () => {
-    expect(apiUrlOf(readRepoFile('public/map.html'))).toBe(apiUrlOf(readRepoFile('public/tree.html')));
+  it('沒有任何頁面自己寫死 API_URL / GOOGLE_CLIENT_ID(改了 config.js 卻漏改某頁會出事)', () => {
+    for (const page of pages) {
+      const html = readRepoFile(`public/${page}`);
+      expect(html, page).not.toMatch(/const\s+API_URL\s*=/);
+      expect(html, page).not.toMatch(/const\s+GOOGLE_CLIENT_ID\s*=/);
+    }
+  });
+
+  it('每個頁面都從 config.js 匯入 API_URL', () => {
+    for (const page of pages) {
+      expect(readRepoFile(`public/${page}`), page).toMatch(/import\s*\{[^}]*API_URL[^}]*\}\s*from\s*'\.\.\/src\/config\.js'/);
+    }
+  });
+
+  it('config.js 已設定(不是 PASTE_ 佔位字串),且與 Code.gs 的 GOOGLE_CLIENT_ID 相同', () => {
+    const config = readRepoFile('src/config.js');
+    const clientId = config.match(/GOOGLE_CLIENT_ID\s*=\s*'([^']+)'/)[1];
+    expect(clientId.startsWith('PASTE_')).toBe(false);
+    expect(config).not.toContain("API_URL = 'PASTE_");
+    expect(readRepoFile('apps-script/Code.gs')).toContain(`var GOOGLE_CLIENT_ID = '${clientId}'`);
   });
 });

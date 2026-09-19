@@ -8,33 +8,19 @@ import { enqueue, listPending, remove } from './offlineQueue.js';
 const SUCCESS_STATUS = 'ok';
 
 /**
- * 後端的「永久拒絕」代碼:資料本身有問題,重送一百次也不會成功,必須移出離線佇列
- * (見 syncPendingQueue 的說明),避免無限重試。
- *
- * 這裡**只有** VALIDATION_FAILED:前端送出前已跑過同一套驗證,合法的紀錄不可能在
- * 後端被判 VALIDATION_FAILED,真的發生代表資料已經壞掉,留著也送不出去。
- * `AUTH_REJECTED` 曾經也在這份清單裡,但它是**環境問題**而非資料問題(見下方說明),
- * 丟掉會造成無法挽回的資料遺失,因此已移出。
+ * 後端的「永久拒絕」代碼:重送一百次也不會成功,必須移出離線佇列(見 syncPendingQueue),避免無限重試。
+ *   VALIDATION_FAILED — 資料本身不合法。前端送出前已跑過同一套驗證,真的發生代表資料壞了。
+ *   STUDENT_REJECTED  — 班級座號/通行碼錯誤,或這位同學已被老師停用。內容不變就永遠是同樣的結果。
  */
-const NON_RETRYABLE_CODES = ['VALIDATION_FAILED'];
-
-/** 登入權杖過期:資料還是好的,但要等使用者重新登入才能送 —— 保留在佇列。 */
-export const AUTH_EXPIRED_CODE = 'AUTH_EXPIRED';
+const NON_RETRYABLE_CODES = ['VALIDATION_FAILED', 'STUDENT_REJECTED'];
 
 /**
- * 身分不被接受。**不等於資料有問題**:最常見的原因其實是部署設定貼錯 ——
- * `public/tree.html` 與 `apps-script/Code.gs` 兩處的 GOOGLE_CLIENT_ID 必須完全一致
- * (DEPLOY.md 有兩個各自獨立的人工貼上點),只要有一處打錯,`aud` 比對就會對**每一筆**
- * 送出都回 AUTH_REJECTED。若把這種紀錄丟出佇列,一個可修復的設定筆誤會在第一次同步時
- * 就把全班的量測資料永久刪光。因此改為「保留資料、暫停自動重送、提示找老師檢查設定」。
+ * 同一班級座號連續輸入錯誤太多次,後端暫時鎖定。這是「稍後就會好」的狀況:
+ *   - 在同步佇列裡:視為暫時性失敗,資料保留(鎖定解除後才補得回來)。
+ *   - 在學生剛按下送出時:當場告訴學生、不入佇列 —— 否則會把通行碼明碼存在本機,
+ *     等一個必然失敗的重送,學生也不知道自己被鎖住了。
  */
-export const AUTH_REJECTED_CODE = 'AUTH_REJECTED';
-
-/**
- * 遇到這些代碼就:資料留在佇列、停止本次同步、把狀況往上報給 UI。
- * 兩者都不是「資料壞掉」,而是「現在送不出去」,差別只在誰能修好(學生重新登入 vs 老師改設定)。
- */
-const AUTH_PAUSE_CODES = [AUTH_EXPIRED_CODE, AUTH_REJECTED_CODE];
+export const STUDENT_LOCKED_CODE = 'STUDENT_LOCKED';
 
 /**
  * 送出單筆紀錄,回傳一個結果物件(不丟例外,呼叫端據此決定入列/丟棄/重試):
@@ -71,7 +57,7 @@ async function postRecord(record, fetchImpl, apiUrl) {
   }
 
   if (body && body.status === SUCCESS_STATUS) {
-    return { ok: true };
+    return { ok: true, studentName: body.studentName };
   }
 
   const code = (body && body.code) || 'UNKNOWN_ERROR';
@@ -85,19 +71,19 @@ async function postRecord(record, fetchImpl, apiUrl) {
 
 /**
  * 送出一筆量測紀錄。
- * @returns {Promise<{ status: 'sent' | 'queued' | 'rejected', code?: string, error?: string }>}
- *   - `sent`:後端明確回 `{status:'ok'}`
- *   - `queued`:暫時性失敗(離線、伺服器錯誤、登入過期、身分驗證失敗),已存進本機佇列等之後同步
- *   - `rejected`:後端判定資料不合法(VALIDATION_FAILED),不入佇列,必須讓使用者知道要重填
+ * @returns {Promise<{ status: 'sent' | 'queued' | 'rejected', code?: string, error?: string, studentName?: string }>}
+ *   - `sent`:後端明確回 `{status:'ok'}`,並帶回名簿裡的填寫人姓名
+ *   - `queued`:暫時性失敗(離線、伺服器錯誤),已存進本機佇列等之後同步
+ *   - `rejected`:後端永久拒絕(資料不合法、通行碼錯/被停用),或學生被暫時鎖定 → 不入佇列,必須讓使用者知道
  */
 export async function submitMeasurement(record, fetchImpl, apiUrl) {
   const result = await postRecord(record, fetchImpl, apiUrl);
 
   if (result.ok) {
-    return { status: 'sent' };
+    return { status: 'sent', studentName: result.studentName };
   }
 
-  if (!result.retryable) {
+  if (!result.retryable || result.code === STUDENT_LOCKED_CODE) {
     return { status: 'rejected', code: result.code, error: result.error };
   }
 
@@ -107,29 +93,21 @@ export async function submitMeasurement(record, fetchImpl, apiUrl) {
 
 /**
  * 逐筆嘗試送出佇列中的待同步紀錄。
- * @returns {Promise<{ synced: number, dropped: number, failed: number, authPaused: boolean, authCode: string|null }>}
+ * @returns {Promise<{ synced: number, dropped: number, failed: number }>}
  *   - `synced`:送達並已移出佇列
- *   - `dropped`:被後端判定資料不合法(VALIDATION_FAILED)而移出佇列
- *   - `failed`:暫時性失敗,仍留在佇列等下次重試
- *   - `authPaused`:遇到 AUTH_EXPIRED / AUTH_REJECTED,已中止本次同步,資料全數保留
- *   - `authCode`:造成中止的代碼(供 UI 決定要提示「重新登入」還是「找老師檢查設定」),沒中止則為 null
+ *   - `dropped`:被後端永久拒絕(資料不合法、通行碼錯/被停用)而移出佇列
+ *   - `failed`:暫時性失敗(離線、伺服器錯誤、學生被暫時鎖定),仍留在佇列等下次重試
  *
  * 為什麼 `dropped` 的紀錄要「丟掉」而不是無限重試:
- * 後端回 VALIDATION_FAILED 代表這筆資料本身不合法,內容不變的情況下重送永遠會得到同樣的
- * 拒絕。若留在佇列,每次 `online` 事件都會重打一次後端,形成永久的無效流量,而且會卡住
- * 後面正常紀錄的處理。因此刻意移除 —— 但一定要把 `dropped` 的數字往上回報給 UI,
- * 不能無聲吃掉學生的資料。
- *
- * 為什麼 AUTH_REJECTED 不在 `dropped` 裡:它反映的是「部署設定」而不是「資料內容」
- * (見 AUTH_REJECTED_CODE 的說明),丟掉就再也救不回來了。
+ * 內容不變的情況下重送永遠得到同樣的拒絕。若留在佇列,每次 `online` 事件都會重打一次後端,
+ * 形成永久的無效流量,還會累計該學生的失敗次數把他鎖住。因此刻意移除 ——
+ * 但一定要把 `dropped` 的數字往上回報給 UI,不能無聲吃掉學生的資料。
  */
 export async function syncPendingQueue(fetchImpl, apiUrl) {
   const pending = await listPending();
   let synced = 0;
   let dropped = 0;
   let failed = 0;
-  let authPaused = false;
-  let authCode = null;
 
   for (const item of pending) {
     const result = await postRecord(item.record, fetchImpl, apiUrl);
@@ -137,26 +115,13 @@ export async function syncPendingQueue(fetchImpl, apiUrl) {
     if (result.ok) {
       await remove(item.id);
       synced += 1;
-      continue;
-    }
-
-    if (AUTH_PAUSE_CODES.includes(result.code)) {
-      // 身分這一關過不了,同一批的其他紀錄必然也會被拒 —— 立刻收手,別連環重送。
-      // 資料**全數保留**在佇列:過期等使用者重新登入,設定不符等老師改好 Client ID 後再刷。
-      authPaused = true;
-      authCode = result.code;
-      failed += pending.length - (synced + dropped);
-      break;
-    }
-
-    if (!result.retryable) {
+    } else if (!result.retryable) {
       await remove(item.id);
       dropped += 1;
-      continue;
+    } else {
+      failed += 1;
     }
-
-    failed += 1;
   }
 
-  return { synced, dropped, failed, authPaused, authCode };
+  return { synced, dropped, failed };
 }

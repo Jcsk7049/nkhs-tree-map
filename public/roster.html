@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>學生名單與通行碼</title>
+  <style>
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { font-family: sans-serif; margin: 0; padding: 16px; color: #1b1b1b; }
+    #gate { max-width: 420px; margin: 60px auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; text-align: center; }
+    #gate-status { color: #555; min-height: 1.4em; }
+    main { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 4px 0 8px; }
+    h2 { font-size: 17px; margin: 0 0 8px; }
+    .hint { color: #555; font-size: 14px; margin: 0 0 12px; }
+    section { border: 1px solid #ccc; border-radius: 6px; padding: 12px 14px; margin: 0 0 14px; }
+    textarea { width: 100%; min-height: 110px; padding: 8px; font-size: 15px; font-family: monospace; }
+    button { padding: 8px 14px; font-size: 15px; margin: 8px 8px 0 0; cursor: pointer; }
+    button.primary { background: #2e7d32; color: #fff; border: 0; border-radius: 4px; }
+    button.small { padding: 3px 8px; font-size: 13px; margin: 0 4px 0 0; }
+    button[disabled] { opacity: 0.5; cursor: default; }
+    #message { min-height: 1.4em; margin: 8px 0; font-size: 14px; }
+    #message.error { color: #c62828; }
+    #message.ok { color: #2e7d32; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e0e0e0; }
+    .st-on { color: #2e7d32; font-weight: bold; }
+    .st-off { color: #c62828; font-weight: bold; }
+    .warn { background: #fff3e0; border: 1px solid #ef6c00; color: #a34700; padding: 8px 12px; border-radius: 4px; font-size: 14px; }
+    .slips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; margin-top: 10px; }
+    .slip { border: 1px dashed #888; padding: 5mm; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+    .slip .school { font-size: 12px; color: #555; }
+    .slip .name { font-size: 22px; font-weight: bold; margin-top: 2mm; }
+    .slip .cls { font-size: 15px; margin-top: 1mm; }
+    .slip .code { font-size: 30px; font-family: monospace; letter-spacing: 3px; font-weight: bold; margin: 3mm 0; }
+    .slip .how { font-size: 11px; color: #444; }
+    @page { size: A4; margin: 10mm; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+      section.print-area { border: 0; padding: 0; margin: 0; }
+    }
+  </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <div id="gate">
+    <h1>教師登入</h1>
+    <p id="gate-status"></p>
+    <div id="gate-button" style="display:flex; justify-content:center"></div>
+    <p style="color:#888; font-size:13px">此頁僅供老師使用。學生請掃樹上的 QRCode。</p>
+  </div>
+
+  <main id="gated" hidden>
+    <p class="hint no-print"><a href="./teacher.html">← 教師端</a></p>
+    <h1 class="no-print">學生名單與通行碼</h1>
+    <p class="hint no-print">學生要有老師發的「個人通行碼」才能送出量測。通行碼在伺服器只存雜湊,連管理者都看不到明碼——<strong>產生後請立刻列印</strong>,忘了就用「重設」重發。</p>
+
+    <section class="no-print">
+      <h2>1. 貼上學生名單</h2>
+      <p class="hint">每行一位:「班級座號 姓名」,可直接從試算表複製貼上(Tab)或用逗號、空白分隔。已在名單裡的座號只會更新姓名,不會重發通行碼。</p>
+      <textarea id="paste" placeholder="301-01&#9;王小明&#10;301-02&#9;李小華"></textarea>
+      <button type="button" class="primary" id="import">匯入名單並產生通行碼</button>
+    </section>
+
+    <div id="message" class="no-print" role="status"></div>
+
+    <section class="no-print" id="roster-section">
+      <h2>2. 目前的學生名單</h2>
+      <button type="button" id="reload">重新載入</button>
+      <button type="button" id="reset-selected" disabled>重設勾選者的通行碼</button>
+      <span id="selected-count" class="hint"></span>
+      <table>
+        <thead><tr><th><input type="checkbox" id="check-all" aria-label="全選" /></th><th>班級座號</th><th>姓名</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody id="roster-body"></tbody>
+      </table>
+    </section>
+
+    <section class="print-area" id="slips-section" hidden>
+      <div class="no-print">
+        <h2>3. 本次產生的通行碼紙條</h2>
+        <div class="warn">通行碼只會顯示這一次:重新整理或關閉頁面後就看不到了。請現在列印,發給對應的同學。紙條上有姓名,請只發給本人。</div>
+        <button type="button" class="primary" id="print">列印紙條</button>
+        <button type="button" id="clear-slips">清除畫面上的通行碼</button>
+      </div>
+      <div class="slips" id="slips"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
+    import { requireTeacher } from '../src/teacherGate.js';
+    import { parseRosterText } from '../src/roster.js';
+
+    const teacher = await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
+
+    const messageEl = document.getElementById('message');
+    const bodyEl = document.getElementById('roster-body');
+    const slipsSection = document.getElementById('slips-section');
+    const slipsEl = document.getElementById('slips');
+    const resetSelectedBtn = document.getElementById('reset-selected');
+    const selectedCountEl = document.getElementById('selected-count');
+    const checkAll = document.getElementById('check-all');
+
+    /** classNo → {classNo, name, code};只存在這個頁面的記憶體裡,重新整理就消失。 */
+    const slips = new Map();
+
+    function say(text, kind) {
+      messageEl.textContent = text;
+      messageEl.className = `no-print ${kind || ''}`;
+    }
+
+    function renderSlips() {
+      slipsEl.textContent = '';
+      for (const slip of slips.values()) {
+        const card = document.createElement('div');
+        card.className = 'slip';
+        const parts = [
+          ['school', '南港高工 校園樹木量測'],
+          ['name', slip.name],
+          ['cls', `班級座號 ${slip.classNo}`],
+          ['code', slip.code],
+          ['how', '掃樹上的 QRCode → 輸入班級座號與這組通行碼。請勿轉給別人。'],
+        ];
+        for (const [cls, text] of parts) {
+          const div = document.createElement('div');
+          div.className = cls;
+          div.textContent = text;
+          card.append(div);
+        }
+        slipsEl.append(card);
+      }
+      slipsSection.hidden = slips.size === 0;
+    }
+
+    function addSlips(items) {
+      for (const item of items) slips.set(item.classNo, item);
+      renderSlips();
+    }
+
+    function selectedClassNos() {
+      return [...bodyEl.querySelectorAll('input[type=checkbox]:checked')].map((box) => box.dataset.classNo);
+    }
+
+    function refreshSelection() {
+      const count = selectedClassNos().length;
+      selectedCountEl.textContent = count > 0 ? `已勾選 ${count} 位` : '';
+      resetSelectedBtn.disabled = count === 0;
+    }
+
+    async function guarded(action) {
+      try {
+        await action();
+      } catch (err) {
+        say(err.message || '操作失敗,請再試一次', 'error');
+      }
+    }
+
+    async function loadRoster() {
+      const { students } = await teacher.call('roster-list');
+      bodyEl.textContent = '';
+      checkAll.checked = false;
+      if (students.length === 0) {
+        const tr = bodyEl.insertRow();
+        const td = tr.insertCell();
+        td.colSpan = 5;
+        td.textContent = '名單還是空的,請先在上面貼上學生名單。';
+        refreshSelection();
+        return;
+      }
+      for (const student of students) {
+        const tr = bodyEl.insertRow();
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.dataset.classNo = student.classNo;
+        tr.insertCell().append(box);
+        tr.insertCell().textContent = student.classNo;
+        tr.insertCell().textContent = student.name;
+        const statusCell = tr.insertCell();
+        statusCell.textContent = student.status;
+        statusCell.className = student.status === '啟用' ? 'st-on' : 'st-off';
+
+        const actions = tr.insertCell();
+        const resetBtn = document.createElement('button');
+        resetBtn.type = 'button';
+        resetBtn.className = 'small';
+        resetBtn.textContent = '重設通行碼';
+        resetBtn.dataset.action = 'reset';
+        resetBtn.dataset.classNo = student.classNo;
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'small';
+        toggleBtn.textContent = student.status === '啟用' ? '停用' : '啟用';
+        toggleBtn.dataset.action = 'toggle';
+        toggleBtn.dataset.classNo = student.classNo;
+        toggleBtn.dataset.next = student.status === '啟用' ? '停用' : '啟用';
+        actions.append(resetBtn, toggleBtn);
+      }
+      refreshSelection();
+    }
+
+    async function resetCodes(classNos) {
+      if (!window.confirm(`確定為 ${classNos.length} 位同學重設通行碼?舊通行碼會立刻失效。`)) return;
+      const result = await teacher.call('roster-reset', { classNos });
+      addSlips(result.reset);
+      const skipped = result.skipped.length > 0 ? `;${result.skipped.length} 位找不到` : '';
+      say(`已重設 ${result.reset.length} 位的通行碼${skipped},請往下列印紙條。`, 'ok');
+    }
+
+    document.getElementById('import').addEventListener('click', () => guarded(async () => {
+      const { students, errors } = parseRosterText(document.getElementById('paste').value);
+      if (students.length === 0) {
+        say(errors.length > 0 ? `沒有可匯入的資料:第 ${errors[0].line} 行「${errors[0].text}」${errors[0].reason}` : '請先貼上名單', 'error');
+        return;
+      }
+      const result = await teacher.call('roster-import', { students });
+      addSlips(result.created);
+      const notes = [`新增 ${result.created.length} 位`, `更新姓名 ${result.updated} 位`];
+      const problems = [
+        ...errors.map((e) => `第 ${e.line} 行「${e.text}」:${e.reason}`),
+        ...result.skipped.map((s) => `${s.classNo || '(空白)'}:${s.reason}`),
+      ];
+      if (problems.length > 0) notes.push(`略過 ${problems.length} 筆(${problems.slice(0, 5).join(';')}${problems.length > 5 ? '…' : ''})`);
+      say(notes.join(',') + (result.created.length > 0 ? '。新通行碼在下方,請立刻列印。' : '。'), problems.length > 0 ? 'error' : 'ok');
+      document.getElementById('paste').value = '';
+      await loadRoster();
+    }));
+
+    document.getElementById('reload').addEventListener('click', () => guarded(loadRoster));
+
+    resetSelectedBtn.addEventListener('click', () => guarded(() => resetCodes(selectedClassNos())));
+
+    checkAll.addEventListener('change', () => {
+      bodyEl.querySelectorAll('input[type=checkbox]').forEach((box) => { box.checked = checkAll.checked; });
+      refreshSelection();
+    });
+    bodyEl.addEventListener('change', refreshSelection);
+
+    bodyEl.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      guarded(async () => {
+        if (button.dataset.action === 'reset') {
+          await resetCodes([button.dataset.classNo]);
+        } else {
+          await teacher.call('roster-status', { classNo: button.dataset.classNo, newStatus: button.dataset.next });
+          say(`${button.dataset.classNo} 已${button.dataset.next}`, 'ok');
+          await loadRoster();
+        }
+      });
+    });
+
+    document.getElementById('print').addEventListener('click', () => window.print());
+    document.getElementById('clear-slips').addEventListener('click', () => {
+      if (window.confirm('清除後就看不到這些通行碼了(需要的話只能用「重設」重發)。確定?')) {
+        slips.clear();
+        renderSlips();
+      }
+    });
+
+    await guarded(loadRoster);
+  </script>
+</body>
+</html>

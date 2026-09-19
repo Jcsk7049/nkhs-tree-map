@@ -1,4 +1,5 @@
 import { calculateTreeHeight } from './calc.js';
+import { normalizeClassNo, normalizeCode } from './studentCode.js';
 
 export function getTreeIdFromUrl(search) {
   const params = new URLSearchParams(search);
@@ -19,12 +20,12 @@ function createClientRecordId() {
 }
 
 export function buildMeasurementRecord(formValues, treeId) {
-  const { studentName, studentClassNo, angleDeg, distanceM, girthCm } = formValues;
+  const { studentClassNo, studentCode, angleDeg, distanceM, girthCm } = formValues;
   return {
     treeId,
     timestamp: new Date().toISOString(),
-    studentName,
-    studentClassNo,
+    studentClassNo: normalizeClassNo(studentClassNo),
+    studentCode: normalizeCode(studentCode),
     angleDeg,
     distanceM,
     girthCm,

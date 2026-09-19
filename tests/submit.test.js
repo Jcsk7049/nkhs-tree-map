@@ -97,24 +97,29 @@ describe('submitMeasurement', () => {
     expect((await listPending()).length).toBe(0);
   });
 
-  it('伺服器回 AUTH_EXPIRED 時資料應保留在佇列等重新登入後再送', async () => {
-    const mockFetch = vi.fn().mockResolvedValue(
-      jsonResponse({ status: 'error', code: 'AUTH_EXPIRED', error: '登入已過期' })
-    );
+  it('送出成功時帶回後端確認的填寫人姓名(名簿裡的,不是前端自己填的)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(jsonResponse({ status: 'ok', studentName: '王小明' }));
     const result = await submitMeasurement(sampleRecord, mockFetch, 'https://example.com/api');
-    expect(result.status).toBe('queued');
-    expect(result.code).toBe('AUTH_EXPIRED');
-    expect((await listPending()).length).toBe(1);
+    expect(result).toEqual({ status: 'sent', studentName: '王小明' });
   });
 
-  it('伺服器回 AUTH_REJECTED 時資料應保留在佇列(可能只是 Client ID 設定不符,丟掉等於永久遺失)', async () => {
+  it('STUDENT_REJECTED(班級座號/通行碼錯或被停用)→ rejected 且不入佇列:重送也不會變好', async () => {
     const mockFetch = vi.fn().mockResolvedValue(
-      jsonResponse({ status: 'error', code: 'AUTH_REJECTED', error: '登入來源不符,拒絕存取' })
+      jsonResponse({ status: 'error', code: 'STUDENT_REJECTED', error: '班級座號或通行碼錯誤' })
     );
     const result = await submitMeasurement(sampleRecord, mockFetch, 'https://example.com/api');
-    expect(result.status).toBe('queued');
-    expect(result.code).toBe('AUTH_REJECTED');
-    expect((await listPending()).length).toBe(1);
+    expect(result.status).toBe('rejected');
+    expect(result.code).toBe('STUDENT_REJECTED');
+    expect((await listPending()).length).toBe(0);
+  });
+
+  it('STUDENT_LOCKED(連錯太多次被暫時鎖定)→ 當場告訴學生,不入佇列(否則會把明碼存在本機等一個必敗的重送)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      jsonResponse({ status: 'error', code: 'STUDENT_LOCKED', error: '請 10 分鐘後再試' })
+    );
+    const result = await submitMeasurement(sampleRecord, mockFetch, 'https://example.com/api');
+    expect(result).toEqual({ status: 'rejected', code: 'STUDENT_LOCKED', error: '請 10 分鐘後再試' });
+    expect((await listPending()).length).toBe(0);
   });
 });
 
@@ -127,7 +132,7 @@ describe('syncPendingQueue', () => {
   it('佇列為空時各計數皆為0', async () => {
     const mockFetch = vi.fn().mockResolvedValue(okResponse());
     const result = await syncPendingQueue(mockFetch, 'https://example.com/api');
-    expect(result).toEqual({ synced: 0, dropped: 0, failed: 0, authPaused: false, authCode: null });
+    expect(result).toEqual({ synced: 0, dropped: 0, failed: 0 });
   });
 
   it('佇列中的紀錄同步成功後應從佇列移除', async () => {
@@ -136,7 +141,7 @@ describe('syncPendingQueue', () => {
     const succeedingFetch = vi.fn().mockResolvedValue(okResponse());
     const result = await syncPendingQueue(succeedingFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 1, dropped: 0, failed: 0, authPaused: false, authCode: null });
+    expect(result).toEqual({ synced: 1, dropped: 0, failed: 0 });
     expect((await listPending()).length).toBe(0);
   });
 
@@ -146,7 +151,7 @@ describe('syncPendingQueue', () => {
     const stillFailingFetch = vi.fn().mockRejectedValue(new Error('still offline'));
     const result = await syncPendingQueue(stillFailingFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 0, dropped: 0, failed: 1, authPaused: false, authCode: null });
+    expect(result).toEqual({ synced: 0, dropped: 0, failed: 1 });
     expect((await listPending()).length).toBe(1);
   });
 
@@ -158,60 +163,51 @@ describe('syncPendingQueue', () => {
     );
     const result = await syncPendingQueue(rejectingFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 0, dropped: 1, failed: 0, authPaused: false, authCode: null });
+    expect(result).toEqual({ synced: 0, dropped: 1, failed: 0 });
     expect((await listPending()).length).toBe(0);
   });
 
-  it('AUTH_EXPIRED 的紀錄應留在佇列,且該次同步立即停止不再連環重試', async () => {
+  it('STUDENT_REJECTED 的紀錄視為永久拒絕:移出佇列並計入 dropped(通行碼錯/被停用,重送不會變好)', async () => {
     await queueOne();
-    await queueOne({ ...sampleRecord, treeId: 'A-024' });
-
-    const expiredFetch = vi.fn().mockResolvedValue(
-      jsonResponse({ status: 'error', code: 'AUTH_EXPIRED', error: '登入已過期' })
-    );
-    const result = await syncPendingQueue(expiredFetch, 'https://example.com/api');
-
-    expect(result.authPaused).toBe(true);
-    expect(result.authCode).toBe('AUTH_EXPIRED');
-    expect(result.synced).toBe(0);
-    expect(result.dropped).toBe(0);
-    // 遇到過期 token 後立刻收手,不對同一個死 token 連送兩次
-    expect(expiredFetch).toHaveBeenCalledOnce();
-    expect((await listPending()).length).toBe(2);
-  });
-
-  it('AUTH_REJECTED 的紀錄應留在佇列並暫停同步(Client ID 貼錯時不能把全班資料刪光)', async () => {
-    await queueOne();
-    await queueOne({ ...sampleRecord, treeId: 'A-024' });
 
     const rejectedFetch = vi.fn().mockResolvedValue(
-      jsonResponse({ status: 'error', code: 'AUTH_REJECTED', error: '登入來源不符,拒絕存取' })
+      jsonResponse({ status: 'error', code: 'STUDENT_REJECTED', error: '班級座號或通行碼錯誤' })
     );
     const result = await syncPendingQueue(rejectedFetch, 'https://example.com/api');
 
-    expect(result.authPaused).toBe(true);
-    expect(result.authCode).toBe('AUTH_REJECTED');
-    expect(result.synced).toBe(0);
-    expect(result.dropped).toBe(0);
-    expect(rejectedFetch).toHaveBeenCalledOnce();
-    // 關鍵:兩筆都必須還在,設定修好後才補得回來
-    expect((await listPending()).length).toBe(2);
+    expect(result).toEqual({ synced: 0, dropped: 1, failed: 0 });
+    expect((await listPending()).length).toBe(0);
   });
 
-  it('帶有 idToken 的紀錄應原樣經過 enqueue → sync 送到後端', async () => {
-    // 離線排隊的紀錄必須把自己的登入權杖一起帶著,之後補送時後端才驗得了身分。
-    const recordWithToken = { ...sampleRecord, idToken: 'header.payload.signature' };
-    await queueOne(recordWithToken);
+  it('STUDENT_LOCKED 的紀錄留在佇列(只是暫時鎖住),而且不影響同一批其他同學的紀錄', async () => {
+    await queueOne({ ...sampleRecord, studentClassNo: '301-12' });
+    await queueOne({ ...sampleRecord, studentClassNo: '301-13', treeId: 'A-024' });
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ status: 'error', code: 'STUDENT_LOCKED', error: '鎖定中' }))
+      .mockResolvedValueOnce(okResponse());
+    const result = await syncPendingQueue(fetchImpl, 'https://example.com/api');
+
+    expect(result).toEqual({ synced: 1, dropped: 0, failed: 1 });
+    const remaining = await listPending();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].record.studentClassNo).toBe('301-12');
+  });
+
+  it('離線排隊的紀錄要把班級座號與通行碼一起帶著,補送時後端才驗得了身分', async () => {
+    const recordWithCode = { ...sampleRecord, studentClassNo: '301-12', studentCode: 'K7M2QX4' };
+    await queueOne(recordWithCode);
 
     const pendingBeforeSync = await listPending();
-    expect(pendingBeforeSync[0].record).toEqual(recordWithToken);
+    expect(pendingBeforeSync[0].record).toEqual(recordWithCode);
 
     const succeedingFetch = vi.fn().mockResolvedValue(okResponse());
     const result = await syncPendingQueue(succeedingFetch, 'https://example.com/api');
 
     expect(result.synced).toBe(1);
     const [, options] = succeedingFetch.mock.calls[0];
-    expect(JSON.parse(options.body)).toEqual(recordWithToken);
+    expect(JSON.parse(options.body)).toEqual(recordWithCode);
     expect((await listPending()).length).toBe(0);
   });
 
@@ -228,7 +224,7 @@ describe('syncPendingQueue', () => {
 
     const result = await syncPendingQueue(mixedFetch, 'https://example.com/api');
 
-    expect(result).toEqual({ synced: 1, dropped: 1, failed: 1, authPaused: false, authCode: null });
+    expect(result).toEqual({ synced: 1, dropped: 1, failed: 1 });
     expect((await listPending()).length).toBe(1);
   });
 });

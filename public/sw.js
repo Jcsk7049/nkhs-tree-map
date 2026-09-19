@@ -1,6 +1,6 @@
 // 快取版本號:每次改動 CACHE_FILES 或任何被快取檔案的內容時都要 +1,
 // activate 事件會刪掉所有名稱不等於 CACHE_NAME 的舊快取,新版才能真的取代舊檔。
-const CACHE_NAME = 'tree-map-v6';
+const CACHE_NAME = 'tree-map-v9';
 
 // 以下 CACHE_FILES 從 `src/swCacheList.js` 原樣複製(Service Worker 是獨立執行環境,
 // 無法 import 專案的 ES module,故此處刻意重複維護)。
@@ -13,14 +13,19 @@ const CACHE_FILES = [
   '../src/offlineQueue.js',
   '../src/submit.js',
   '../src/treePage.js',
-  '../src/session.js',
+  '../src/studentCode.js',
+  '../src/config.js',
   '../src/trend.js',
   '../src/trendView.js',
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CACHE_FILES))
+    // cache: 'reload' 讓安裝時一律向伺服器要最新檔,不吃瀏覽器 HTTP 快取的舊檔
+    // (GitHub Pages 的檔案會被快取約 10 分鐘,否則新版 Service Worker 可能把舊檔存進新快取,造成新舊版本混用)。
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.addAll(CACHE_FILES.map((file) => new Request(file, { cache: 'reload' })))
+    )
   );
   self.skipWaiting();
 });

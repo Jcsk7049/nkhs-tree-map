@@ -19,8 +19,8 @@ describe('getTreeIdFromUrl', () => {
 
 describe('buildMeasurementRecord', () => {
   const formValues = {
-    studentName: '王小明',
-    studentClassNo: '土木三甲-12',
+    studentClassNo: ' 301-12 ',
+    studentCode: 'k7m-2qx-4',
     angleDeg: 45,
     distanceM: 10,
     girthCm: 80,
@@ -36,13 +36,24 @@ describe('buildMeasurementRecord', () => {
     expect(rest).toEqual({
       treeId: 'A-023',
       timestamp: '2026-09-18T09:00:00.000Z',
-      studentName: '王小明',
-      studentClassNo: '土木三甲-12',
+      studentClassNo: '301-12',
+      studentCode: 'K7M2QX4',
       angleDeg: 45,
       distanceM: 10,
       girthCm: 80,
       calculatedHeight: 11.5,
     });
+  });
+
+  it('記錄裡不含前端自填的姓名:填寫人由後端依名簿決定,不能自己打', () => {
+    const record = buildMeasurementRecord({ ...formValues, studentName: '冒名者' }, 'A-023');
+    expect(record).not.toHaveProperty('studentName');
+  });
+
+  it('班級座號與通行碼會先正規化(去空白/連字號、轉大寫),與後端比對規則一致', () => {
+    const record = buildMeasurementRecord(formValues, 'A-023');
+    expect(record.studentClassNo).toBe('301-12');
+    expect(record.studentCode).toBe('K7M2QX4');
   });
 
   it('應含有 clientRecordId 供後端做重複送出的去重判斷', () => {

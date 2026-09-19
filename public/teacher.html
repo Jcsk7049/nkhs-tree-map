@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>教師端</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 16px; }
+    [hidden] { display: none !important; }
+    #gate { max-width: 420px; margin: 60px auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; font-family: sans-serif; text-align: center; }
+    #gate-status { color: #555; min-height: 1.4em; }
+    main { max-width: 640px; margin: 0 auto; }
+    .who { color: #555; margin-bottom: 16px; }
+    .cards { display: grid; gap: 12px; }
+    .card { display: block; padding: 16px; border: 1px solid #bbb; border-radius: 8px; text-decoration: none; color: inherit; }
+    .card:hover { background: #f1f8e9; border-color: #2e7d32; }
+    .card strong { display: block; font-size: 18px; margin-bottom: 4px; }
+    .card span { color: #555; font-size: 14px; }
+  </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <div id="gate">
+    <h1>教師登入</h1>
+    <p id="gate-status"></p>
+    <div id="gate-button" style="display:flex; justify-content:center"></div>
+    <p style="color:#888; font-size:13px">此頁僅供老師使用。學生請掃樹上的 QRCode。</p>
+  </div>
+  <main id="gated" hidden>
+    <h1>教師端</h1>
+    <div class="who" id="who"></div>
+    <div class="cards">
+      <a class="card" href="./roster.html"><strong>學生名單與通行碼</strong><span>貼上名單、發通行碼(列印紙條)、重設、停用。學生要有通行碼才能填寫量測。</span></a>
+      <a class="card" href="./map.html"><strong>樹木地圖</strong><span>看全校樹木位置、量測值著色、勾選要貼牌的樹。</span></a>
+      <a class="card" href="./qrcodes.html"><strong>QRCode 標籤</strong><span>產生每棵樹的 QRCode 標籤(印樹號與樹種),可從地圖帶入清單。</span></a>
+    </div>
+  </main>
+
+  <script type="module">
+    import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
+    import { requireTeacher } from '../src/teacherGate.js';
+
+    const teacher = await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
+    document.getElementById('who').textContent = `已登入:${teacher.email}`;
+  </script>
+</body>
+</html>

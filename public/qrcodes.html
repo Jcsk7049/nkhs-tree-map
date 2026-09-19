@@ -6,6 +6,9 @@
   <title>樹木 QRCode 標籤產生器</title>
   <style>
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    #gate { max-width: 420px; margin: 60px auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; font-family: sans-serif; text-align: center; }
+    #gate-status { color: #555; min-height: 1.4em; }
     body { font-family: sans-serif; margin: 0; padding: 16px; color: #1b1b1b; }
     .tool { max-width: 860px; margin: 0 auto 24px; }
     h1 { font-size: 22px; margin: 0 0 4px; }
@@ -41,10 +44,18 @@
       .label { border: 1px dashed #999; }
     }
   </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
+  <div id="gate">
+    <h1>教師登入</h1>
+    <p id="gate-status"></p>
+    <div id="gate-button" style="display:flex; justify-content:center"></div>
+    <p style="color:#888; font-size:13px">此頁僅供老師使用。學生請掃樹上的 QRCode。</p>
+  </div>
+  <div id="gated" hidden>
   <div class="tool">
-    <p class="hint"><a href="./map.html">← 回樹木地圖(在地圖上選樹,清單會自動帶到這裡)</a></p>
+    <p class="hint"><a href="./teacher.html">← 教師端</a> ｜ <a href="./map.html">回樹木地圖(在地圖上選樹,清單會自動帶到這裡)</a></p>
     <h1>樹木 QRCode 標籤產生器</h1>
     <p class="hint">產生後按「列印」,印表機選「另存為 PDF」或直接印在貼紙上。QR 內容是各樹的量測登記網址。</p>
 
@@ -79,11 +90,16 @@
   </div>
 
   <div class="sheet" id="sheet"></div>
+  </div>
 
   <script type="module">
     import qrcode from './vendor/qrcode.mjs';
     import { generateRange, parseIdList, mergeIds, buildTreeUrl, MAX_LABELS } from '../src/qrLabels.js';
     import { indexTrees, orderIdsForWalking } from '../src/treeData.js';
+    import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
+    import { requireTeacher } from '../src/teacherGate.js';
+
+    await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
 
     const KEY_LIST = 'tree-map-print-list';
     const WALK_BAND_DEG = 0.00015; // 約 16 公尺一帶
