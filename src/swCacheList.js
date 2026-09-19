@@ -3,9 +3,13 @@
 // 兩份必須逐字一致 — 由 `tests/duplication-sync.test.js` 自動守門。
 // 路徑皆相對於 `public/sw.js` 所在位置(即 `/public/`)。
 export const CACHE_FILES = [
+  './app.html',
   './tree.html',
   './manifest.json',
   './icon-192.png',
+  './icon-512.png',
+  './icon-180.png',
+  '../src/appShell.js',
   '../src/calc.js',
   '../src/offlineQueue.js',
   '../src/submit.js',

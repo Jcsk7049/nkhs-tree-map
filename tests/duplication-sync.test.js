@@ -57,6 +57,21 @@ describe('tree.html 的模組相依都必須在離線快取清單內', () => {
   });
 });
 
+describe('app.html 的模組相依與安裝資產都必須在離線快取清單內', () => {
+  it('app.html 每個 ../src/*.js import 都應出現在 CACHE_FILES', () => {
+    const imports = extractModuleImports(readRepoFile('public/app.html'));
+    expect(imports.length).toBeGreaterThan(0);
+    for (const importPath of imports) {
+      expect(CACHE_FILES).toContain(importPath);
+    }
+  });
+  it('殼層頁與安裝圖示在清單內', () => {
+    for (const file of ['./app.html', './icon-512.png', './icon-180.png']) {
+      expect(CACHE_FILES).toContain(file);
+    }
+  });
+});
+
 describe('後端網址與用戶端 ID 只在 src/config.js 一處設定', () => {
   const pages = ['tree.html', 'map.html', 'qrcodes.html', 'teacher.html', 'roster.html'];
 
