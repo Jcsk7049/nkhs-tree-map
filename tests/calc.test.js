@@ -61,3 +61,27 @@ describe('validateMeasurementInput', () => {
     expect(result.errors.length).toBe(3);
   });
 });
+
+describe('合理範圍上限(與後端一致)', () => {
+  it('水平距離超過 500 公尺不合法', () => {
+    const r = validateMeasurementInput({ angleDeg: 10, distanceM: 501, girthCm: 80 });
+    expect(r.valid).toBe(false);
+    expect(r.errors).toContain('水平距離不可超過500公尺');
+  });
+
+  it('樹圍超過 2000 公分不合法', () => {
+    const r = validateMeasurementInput({ angleDeg: 45, distanceM: 10, girthCm: 2001 });
+    expect(r.valid).toBe(false);
+    expect(r.errors).toContain('樹圍不可超過2000公分');
+  });
+
+  it('算出的樹高超過 100 公尺不合法', () => {
+    const r = validateMeasurementInput({ angleDeg: 89.9, distanceM: 500, girthCm: 80 });
+    expect(r.valid).toBe(false);
+    expect(r.errors).toContain('算出的樹高超過100公尺,請確認角度與距離');
+  });
+
+  it('邊界值仍合法:500 m、2000 cm、樹高剛好在 100 m 以內', () => {
+    expect(validateMeasurementInput({ angleDeg: 10, distanceM: 500, girthCm: 2000 }).valid).toBe(true);
+  });
+});

@@ -43,11 +43,21 @@ var CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
 var CODE_BODY_LENGTH = 6;
 var CODE_WEIGHTS = [1, 7, 11, 13, 17, 19];
 
-var MAX_FAILS = 5;
-var LOCK_SECONDS = 600;
+// 通行碼熵約 2^29,線上暴力猜本來就不可行,所以鎖定門檻放寬:太嚴只會被別人拿來故意輸錯搗亂。
+// 老師「重設」通行碼會一併解除鎖定。
+var MAX_FAILS = 10;
+var LOCK_SECONDS = 300;
 var FAIL_KEY_PREFIX = 'student-fail:';
 var PEPPER_PROPERTY = 'CODE_PEPPER';
 var MAX_IMPORT = 500;
+// 量測值的合理範圍。樹高一律由後端用仰角/距離重算,不信任前端傳來的數字。
+var EYE_HEIGHT_M = 1.5;
+var MAX_DISTANCE_M = 500;
+var MAX_GIRTH_CM = 2000;
+var MAX_HEIGHT_M = 100;
+// 前端時間戳只在合理範圍內採信(離線補送的舊時間),否則改用伺服器時間。
+var TIMESTAMP_MAX_AGE_MS = 366 * 24 * 3600 * 1000;
+var TIMESTAMP_MAX_FUTURE_MS = 10 * 60 * 1000;
 var MAX_FIELD_LENGTH = 20;
 
 // ---------------------------------------------------------------------------
@@ -159,6 +169,17 @@ function findStudent(sheet, classNo) {
 // 學生驗證
 // ---------------------------------------------------------------------------
 
+/** 失敗計數是「讀取 → +1 → 寫回」,並發請求不加鎖會互相覆蓋、讓計數偏低。 */
+function recordFailure(cache, key) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    cache.put(key, String(Number(cache.get(key) || 0) + 1), LOCK_SECONDS);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /**
  * 驗證「班級座號 + 通行碼」。錯誤訊息一律相同(不透露是座號不存在、碼錯還是被停用),
  * 並且對同一班級座號累計失敗次數:連錯 MAX_FAILS 次就鎖 LOCK_SECONDS 秒,擋住暴力猜碼。
@@ -177,7 +198,11 @@ function verifyStudent(classNoRaw, codeRaw) {
   var failKey = FAIL_KEY_PREFIX + classNo;
   var fails = Number(cache.get(failKey) || 0);
   if (fails >= MAX_FAILS) {
-    return { ok: false, code: 'STUDENT_LOCKED', error: '嘗試次數過多,已暫時鎖定,請 10 分鐘後再試,或找老師處理' };
+    return {
+      ok: false,
+      code: 'STUDENT_LOCKED',
+      error: '嘗試次數過多,已暫時鎖定,請 ' + Math.round(LOCK_SECONDS / 60) + ' 分鐘後再試,或請老師重設通行碼',
+    };
   }
 
   var good = false;
@@ -188,7 +213,7 @@ function verifyStudent(classNoRaw, codeRaw) {
   }
 
   if (!good) {
-    cache.put(failKey, String(fails + 1), LOCK_SECONDS);
+    recordFailure(cache, failKey);
     return rejected;
   }
   cache.remove(failKey);
@@ -368,17 +393,42 @@ function validateMeasurementPayload(data) {
   var distanceM = Number(data.distanceM);
   var girthCm = Number(data.girthCm);
 
-  if (!(angleDeg > 0 && angleDeg < 90)) {
+  var angleOk = angleDeg > 0 && angleDeg < 90;
+  var distanceOk = distanceM > 0;
+  if (!angleOk) {
     errors.push('角度必須大於0度且小於90度');
   }
-  if (!(distanceM > 0)) {
+  if (!distanceOk) {
     errors.push('水平距離必須大於0');
+  } else if (distanceM > MAX_DISTANCE_M) {
+    errors.push('水平距離不可超過' + MAX_DISTANCE_M + '公尺');
+    distanceOk = false;
   }
   if (!(girthCm > 0)) {
     errors.push('樹圍必須大於0');
+  } else if (girthCm > MAX_GIRTH_CM) {
+    errors.push('樹圍不可超過' + MAX_GIRTH_CM + '公分');
+  }
+  if (angleOk && distanceOk && computeHeight(angleDeg, distanceM) > MAX_HEIGHT_M) {
+    errors.push('算出的樹高超過' + MAX_HEIGHT_M + '公尺,請確認角度與距離');
   }
 
   return errors;
+}
+
+/** 與 src/calc.js 的 calculateTreeHeight 相同:量測者眼高 + 距離 × tan(仰角),四捨五入到 0.01。 */
+function computeHeight(angleDeg, distanceM) {
+  return Math.round((distanceM * Math.tan((angleDeg * Math.PI) / 180) + EYE_HEIGHT_M) * 100) / 100;
+}
+
+/** 前端時間戳壞掉(zzzz)、在未來或太久以前都不採信,改用伺服器時間;否則會把某棵樹永久「釘」在最新。 */
+function trustedTimestamp(raw) {
+  var ms = Date.parse(String(raw));
+  var now = Date.now();
+  if (isNaN(ms) || ms > now + TIMESTAMP_MAX_FUTURE_MS || ms < now - TIMESTAMP_MAX_AGE_MS) {
+    return nowIso();
+  }
+  return new Date(ms).toISOString();
 }
 
 function handleMeasurement(data) {
@@ -410,12 +460,12 @@ function handleMeasurement(data) {
     sheet.getRange(newRow, 1, 1, 4).setNumberFormat('@');
     sheet.getRange(newRow, 1, 1, 10).setValues([[
       sanitizeCellText(data.treeId),
-      sanitizeCellText(data.timestamp),
+      trustedTimestamp(data.timestamp),
       sanitizeCellText(student.name),
       sanitizeCellText(student.classNo),
       Number(data.angleDeg),
       Number(data.distanceM),
-      Number(data.calculatedHeight),
+      computeHeight(Number(data.angleDeg), Number(data.distanceM)),
       Number(data.girthCm),
       '已同步',
       sanitizeCellText(data.clientRecordId),

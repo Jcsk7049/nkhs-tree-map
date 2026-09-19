@@ -211,11 +211,11 @@ describe('學生驗證 verifyStudent', () => {
     expect(new Set([wrongCode.error, unknown.error, disabled.error]).size).toBe(1);
   });
 
-  it('連錯 5 次後鎖定:第 6 次即使碼正確也回 STUDENT_LOCKED', () => {
+  it('連錯 MAX_FAILS 次後鎖定:下一次即使碼正確也回 STUDENT_LOCKED', () => {
     const env = withTeacher();
     const codes = enroll(env, [['301-12', '王小明']]);
     const bad = env.sandbox.formatCode(env.sandbox.generateCode());
-    for (let i = 0; i < 5; i += 1) expect(env.sandbox.verifyStudent('301-12', bad).code).toBe('STUDENT_REJECTED');
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) expect(env.sandbox.verifyStudent('301-12', bad).code).toBe('STUDENT_REJECTED');
     expect(env.sandbox.verifyStudent('301-12', codes['301-12']).code).toBe('STUDENT_LOCKED');
   });
 
@@ -223,24 +223,24 @@ describe('學生驗證 verifyStudent', () => {
     const env = withTeacher();
     const codes = enroll(env, [['301-12', '甲'], ['301-13', '乙']]);
     const bad = env.sandbox.formatCode(env.sandbox.generateCode());
-    for (let i = 0; i < 5; i += 1) env.sandbox.verifyStudent('301-12', bad);
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) env.sandbox.verifyStudent('301-12', bad);
     expect(env.sandbox.verifyStudent('301-13', codes['301-13']).ok).toBe(true);
   });
 
-  it('成功一次就清掉失敗計數(先錯 4 次、對 1 次、再錯 4 次仍不鎖)', () => {
+  it('成功一次就清掉失敗計數(先錯 MAX-1 次、對 1 次、再錯 MAX-1 次仍不鎖)', () => {
     const env = withTeacher();
     const codes = enroll(env, [['301-12', '王小明']]);
     const bad = env.sandbox.formatCode(env.sandbox.generateCode());
-    for (let i = 0; i < 4; i += 1) env.sandbox.verifyStudent('301-12', bad);
+    for (let i = 0; i < env.sandbox.MAX_FAILS - 1; i += 1) env.sandbox.verifyStudent('301-12', bad);
     expect(env.sandbox.verifyStudent('301-12', codes['301-12']).ok).toBe(true);
-    for (let i = 0; i < 4; i += 1) env.sandbox.verifyStudent('301-12', bad);
+    for (let i = 0; i < env.sandbox.MAX_FAILS - 1; i += 1) env.sandbox.verifyStudent('301-12', bad);
     expect(env.sandbox.verifyStudent('301-12', codes['301-12']).ok).toBe(true);
   });
 
   it('檢查碼不對的碼直接拒絕,而且也計入失敗次數(不能拿來無限試)', () => {
     const env = withTeacher();
     enroll(env, [['301-12', '王小明']]);
-    for (let i = 0; i < 5; i += 1) expect(env.sandbox.verifyStudent('301-12', 'AAAAAAA').code).toBe('STUDENT_REJECTED');
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) expect(env.sandbox.verifyStudent('301-12', 'AAAAAAA').code).toBe('STUDENT_REJECTED');
     expect(env.sandbox.verifyStudent('301-12', 'AAAAAAA').code).toBe('STUDENT_LOCKED');
   });
 
@@ -286,7 +286,7 @@ describe('學生送出量測 doPost', () => {
   it('被鎖定 → STUDENT_LOCKED(前端會保留在佇列稍後再試)', () => {
     const { env, code } = setup();
     const bad = env.sandbox.formatCode(env.sandbox.generateCode());
-    for (let i = 0; i < 5; i += 1) submit(env, measurement({ studentCode: bad, clientRecordId: `x${i}` }));
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) submit(env, measurement({ studentCode: bad, clientRecordId: `x${i}` }));
     expect(submit(env, measurement({ studentCode: code })).code).toBe('STUDENT_LOCKED');
   });
 
@@ -337,6 +337,96 @@ describe('學生送出量測 doPost', () => {
     const fetchesBefore = env.stats.fetches; // 匯入名單時老師驗證用掉的次數
     submit(env, measurement({ studentCode: code }));
     expect(env.stats.fetches).toBe(fetchesBefore);
+  });
+});
+
+describe('被拒絕的鎖定策略:放寬門檻、失敗計數不丟失', () => {
+  it('門檻放寬到 10 次、鎖 5 分鐘(通行碼熵約 2^29,線上暴力猜本來就不可行,鎖定太嚴只會被拿來搗亂)', () => {
+    const { sandbox } = loadScript();
+    expect(sandbox.MAX_FAILS).toBe(10);
+    expect(sandbox.LOCK_SECONDS).toBe(300);
+  });
+
+  it('失敗計數用短鎖包起來做「讀取+1+寫回」,並發請求不會彼此覆蓋', () => {
+    const env = withTeacher();
+    enroll(env, [['301-12', '王小明']]);
+    const events = [];
+    const realLock = env.sandbox.LockService.getScriptLock;
+    env.sandbox.LockService.getScriptLock = () => {
+      const lock = realLock();
+      return { waitLock: (ms) => { events.push('lock'); lock.waitLock(ms); }, releaseLock: () => { events.push('unlock'); lock.releaseLock(); } };
+    };
+    env.sandbox.verifyStudent('301-12', 'AAAAAAA');
+    expect(events).toEqual(['lock', 'unlock']);
+  });
+
+  it('老師「重設」會解除鎖定;鎖定訊息說明可以找老師處理', () => {
+    const env = withTeacher();
+    enroll(env, [['301-12', '王小明']]);
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) env.sandbox.verifyStudent('301-12', 'AAAAAAA');
+    const locked = env.sandbox.verifyStudent('301-12', 'AAAAAAA');
+    expect(locked.code).toBe('STUDENT_LOCKED');
+    expect(locked.error).toContain('老師');
+    const fresh = teacherCall(env, 'roster-reset', { classNos: ['301-12'] }).reset[0].code;
+    expect(env.sandbox.verifyStudent('301-12', fresh).ok).toBe(true);
+  });
+});
+
+describe('學生送來的樹高與時間不可信:後端自己算、自己校時', () => {
+  const setup = () => {
+    const env = withTeacher();
+    const codes = enroll(env, [['301-12', '王小明']]);
+    return { env, code: codes['301-12'] };
+  };
+  const written = (env) => env.sheets['量測紀錄'].rows[1];
+
+  it('樹高由仰角與距離重算(眼高 1.5 m,四捨五入到 0.01),忽略前端傳來的 calculatedHeight', () => {
+    const { env, code } = setup();
+    submit(env, measurement({ studentCode: code, angleDeg: 45, distanceM: 10, calculatedHeight: 999999 }));
+    expect(written(env)[6]).toBe(11.5);
+    submit(env, measurement({ studentCode: code, angleDeg: 8.5, distanceM: 10, calculatedHeight: 1, clientRecordId: 'b' }));
+    expect(env.sheets['量測紀錄'].rows[2][6]).toBe(2.99);
+  });
+
+  it('算出的樹高超過 100 m、距離超過 500 m、樹圍超過 2000 cm 一律 VALIDATION_FAILED,不寫入', () => {
+    const { env, code } = setup();
+    expect(submit(env, measurement({ studentCode: code, angleDeg: 89.9, distanceM: 500 })).code).toBe('VALIDATION_FAILED');
+    expect(submit(env, measurement({ studentCode: code, distanceM: 501, angleDeg: 1, clientRecordId: 'c' })).code).toBe('VALIDATION_FAILED');
+    expect(submit(env, measurement({ studentCode: code, girthCm: 2001, clientRecordId: 'd' })).code).toBe('VALIDATION_FAILED');
+    expect(submit(env, measurement({ studentCode: code, distanceM: 1e9, angleDeg: 1, clientRecordId: 'e' })).code).toBe('VALIDATION_FAILED');
+    expect(env.sheets['量測紀錄'].rows).toHaveLength(1);
+  });
+
+  it('時間戳壞掉(zzzz)或在未來 → 改用伺服器時間,不會把某棵樹「釘」在最新', () => {
+    const { env, code } = setup();
+    const before = Date.now();
+    submit(env, measurement({ studentCode: code, timestamp: 'zzzz', clientRecordId: 't1' }));
+    submit(env, measurement({ studentCode: code, timestamp: '2999-01-01T00:00:00.000Z', clientRecordId: 't2' }));
+    for (const r of [env.sheets['量測紀錄'].rows[1], env.sheets['量測紀錄'].rows[2]]) {
+      const at = Date.parse(r[1]);
+      expect(at).toBeGreaterThanOrEqual(before - 1000);
+      expect(at).toBeLessThanOrEqual(Date.now() + 1000);
+    }
+  });
+
+  it('合理的過去時間(離線佇列補送)原樣保留,並正規化成 ISO 格式', () => {
+    const { env, code } = setup();
+    submit(env, measurement({ studentCode: code, timestamp: '2026-09-18T10:00:00+08:00', clientRecordId: 'ok' }));
+    expect(written(env)[1]).toBe('2026-09-18T02:00:00.000Z');
+  });
+
+  it('太久以前(超過一年)的時間視同不可信,改用伺服器時間', () => {
+    const { env, code } = setup();
+    submit(env, measurement({ studentCode: code, timestamp: '2001-01-01T00:00:00.000Z', clientRecordId: 'old' }));
+    expect(Date.parse(written(env)[1])).toBeGreaterThan(Date.parse('2020-01-01'));
+  });
+
+  it('壞資料無法再蓋掉真實量測:先送 zzzz 的樹,之後正常量測仍成為「最新」', () => {
+    const { env, code } = setup();
+    submit(env, measurement({ studentCode: code, timestamp: 'zzzz', calculatedHeight: 1e9, clientRecordId: 'evil' }));
+    const summary = env.json(env.sandbox.doGet({ parameter: { action: 'summary' } }));
+    expect(summary.trees[0].height).toBe(11.5);
+    expect(summary.trees[0].at).not.toBe('zzzz');
   });
 });
 
@@ -449,7 +539,7 @@ describe('學生名單管理(老師專用)', () => {
     const env = withTeacher();
     const codes = enroll(env, [['301-12', '王小明']]);
     const bad = env.sandbox.formatCode(env.sandbox.generateCode());
-    for (let i = 0; i < 5; i += 1) env.sandbox.verifyStudent('301-12', bad);
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) env.sandbox.verifyStudent('301-12', bad);
     expect(env.sandbox.verifyStudent('301-12', codes['301-12']).code).toBe('STUDENT_LOCKED');
 
     const res = teacherCall(env, 'roster-reset', { classNos: ['301-12', '999-99'] });
@@ -610,7 +700,7 @@ describe('Code.gs 公開端點:summary / history / 其他 GET', () => {
 
     expect(submit(env, measurement({ studentCode: codes['301-12'], treeId: '43667', calculatedHeight: 13, timestamp: '2026-09-20T01:00:00.000Z', clientRecordId: 'hn' })).status).toBe('ok');
     const updated = JSON.parse(get(env, { action: 'history', treeId: '43667' }).text);
-    expect(updated.points[updated.points.length - 1].height).toBe(13);
+    expect(updated.points[updated.points.length - 1].height).toBe(11.5); // 後端由仰角 45°/距離 10 m 重算,不採信前端的 13
     expect(env.sheets['量測紀錄'].reads).toBe(3);
     get(env, { action: 'history', treeId: '43020' });
     expect(env.sheets['量測紀錄'].reads).toBe(3);
