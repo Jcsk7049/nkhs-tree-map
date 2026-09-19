@@ -1,4 +1,4 @@
-export const MAX_LABELS = 500;
+export const MAX_LABELS = 1000;
 
 export function generateRange({ prefix, start, end, pad }) {
   if (!Number.isInteger(start) || !Number.isInteger(end)) {

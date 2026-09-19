@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>南港高工樹木地圖</title>
+  <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; font-family: sans-serif; }
+    body { display: flex; flex-direction: column; }
+    #bar { padding: 8px 10px; background: #fff; border-bottom: 1px solid #ccc; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
+    #bar select, #bar button { font-size: 15px; padding: 6px 10px; cursor: pointer; }
+    #bar button.active { background: #ff6d00; color: #fff; border: 1px solid #c43e00; }
+    #bar button.primary { background: #2e7d32; color: #fff; border: 0; border-radius: 4px; }
+    #stats { color: #333; }
+    #message { color: #b26a00; min-height: 1.3em; padding: 0 10px 6px; font-size: 14px; background: #fff; }
+    #message.error { color: #c62828; }
+    #map { flex: 1; min-height: 0; }
+    .legend { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; color: #444; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; border: 2px solid #fff; box-shadow: 0 0 0 1px #888; }
+    .popup button { display: block; width: 100%; margin-top: 6px; padding: 6px; font-size: 14px; cursor: pointer; }
+    .popup a { display: block; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <strong>南港高工樹木地圖</strong>
+    <label>樹種
+      <select id="species-filter"><option value="">全部</option></select>
+    </label>
+    <button type="button" id="box-select">框選加入清單</button>
+    <button type="button" id="add-filtered">篩選結果全部加入</button>
+    <button type="button" class="primary" id="make-labels">產生 QRCode 標籤</button>
+    <button type="button" id="clear-list">清空清單</button>
+    <span id="stats">載入中…</span>
+    <span class="legend"><span class="dot" style="background:#9e9e9e"></span>未貼牌</span>
+    <span class="legend"><span class="dot" style="background:#2e7d32"></span>已貼牌</span>
+    <span class="legend"><span class="dot" style="background:#9e9e9e; box-shadow:0 0 0 3px #ff6d00"></span>在列印清單</span>
+  </div>
+  <div id="message" role="status"></div>
+  <div id="map"></div>
+
+  <script src="./vendor/leaflet/leaflet.js"></script>
+  <script type="module">
+    import { filterBySpecies, speciesSummary, treesInBounds } from '../src/treeData.js';
+
+    const L = window.L;
+    const KEY_POSTED = 'tree-map-posted';
+    const KEY_LIST = 'tree-map-print-list';
+
+    function loadSet(key) {
+      try {
+        return new Set(JSON.parse(localStorage.getItem(key) || '[]'));
+      } catch (err) {
+        return new Set();
+      }
+    }
+    function saveSet(key, set) {
+      try {
+        localStorage.setItem(key, JSON.stringify([...set]));
+      } catch (err) {
+        say('無法儲存進度(瀏覽器禁止了本機儲存),重新整理後會消失', true);
+      }
+    }
+
+    const posted = loadSet(KEY_POSTED);
+    const printList = loadSet(KEY_LIST);
+
+    const messageEl = document.getElementById('message');
+    const statsEl = document.getElementById('stats');
+    const boxButton = document.getElementById('box-select');
+    const speciesSelect = document.getElementById('species-filter');
+
+    function say(text, isError) {
+      messageEl.textContent = text;
+      messageEl.className = isError ? 'error' : '';
+    }
+
+    let trees = [];
+    let visible = [];
+    const markers = new Map();
+    const markerLayer = L.layerGroup();
+    let selectMode = false;
+    let corner = null;
+    let cornerMarker = null;
+
+    function updateStats() {
+      const total = trees.length;
+      statsEl.textContent = `共 ${total} 棵(顯示 ${visible.length})· 已貼牌 ${posted.size} · 列印清單 ${printList.size}`;
+    }
+
+    function styleFor(no) {
+      const inList = printList.has(no);
+      return {
+        radius: inList ? 7 : 5,
+        fillColor: posted.has(no) ? '#2e7d32' : '#9e9e9e',
+        fillOpacity: 0.95,
+        color: inList ? '#ff6d00' : '#ffffff',
+        weight: inList ? 3 : 1,
+      };
+    }
+
+    function refreshMarker(no) {
+      const marker = markers.get(no);
+      if (marker) marker.setStyle(styleFor(no));
+      updateStats();
+    }
+
+    function buildPopup(tree) {
+      const box = document.createElement('div');
+      box.className = 'popup';
+
+      const title = document.createElement('strong');
+      title.textContent = `樹號 ${tree.no}`;
+      const species = document.createElement('div');
+      species.textContent = tree.sp;
+
+      const listBtn = document.createElement('button');
+      const postedBtn = document.createElement('button');
+      const syncLabels = () => {
+        listBtn.textContent = printList.has(tree.no) ? '移出列印清單' : '加入列印清單';
+        postedBtn.textContent = posted.has(tree.no) ? '取消「已貼牌」' : '標記為已貼牌';
+      };
+      syncLabels();
+
+      listBtn.addEventListener('click', () => {
+        if (printList.has(tree.no)) printList.delete(tree.no);
+        else printList.add(tree.no);
+        saveSet(KEY_LIST, printList);
+        syncLabels();
+        refreshMarker(tree.no);
+      });
+      postedBtn.addEventListener('click', () => {
+        if (posted.has(tree.no)) posted.delete(tree.no);
+        else posted.add(tree.no);
+        saveSet(KEY_POSTED, posted);
+        syncLabels();
+        refreshMarker(tree.no);
+      });
+
+      const link = document.createElement('a');
+      const url = new URL('./tree.html', window.location.href);
+      url.searchParams.set('treeId', tree.no);
+      link.href = url.toString();
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = '開啟量測頁';
+
+      box.append(title, species, listBtn, postedBtn, link);
+      return box;
+    }
+
+    function render() {
+      markerLayer.clearLayers();
+      markers.clear();
+      visible = filterBySpecies(trees, speciesSelect.value);
+      for (const tree of visible) {
+        const marker = L.circleMarker([tree.y, tree.x], styleFor(tree.no));
+        marker.on('click', () => {
+          if (selectMode) return;
+          L.popup({ closeButton: true }).setLatLng([tree.y, tree.x]).setContent(buildPopup(tree)).openOn(map);
+        });
+        marker.addTo(markerLayer);
+        markers.set(tree.no, marker);
+      }
+      updateStats();
+    }
+
+    const map = L.map('map', { preferCanvas: true, maxZoom: 21, zoomSnap: 0.5 });
+    const NLSC = 'https://wmts.nlsc.gov.tw/wmts';
+    const attribution = '© 內政部國土測繪中心';
+    const aerial = L.tileLayer(`${NLSC}/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}`, { maxNativeZoom: 19, maxZoom: 21, attribution });
+    const emap = L.tileLayer(`${NLSC}/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}`, { maxNativeZoom: 19, maxZoom: 21, attribution });
+    aerial.addTo(map);
+    L.control.layers({ '航照圖': aerial, '電子地圖': emap }, {}, { collapsed: true }).addTo(map);
+    markerLayer.addTo(map);
+
+    function endSelect() {
+      selectMode = false;
+      corner = null;
+      boxButton.classList.remove('active');
+      boxButton.textContent = '框選加入清單';
+      if (cornerMarker) {
+        map.removeLayer(cornerMarker);
+        cornerMarker = null;
+      }
+    }
+
+    boxButton.addEventListener('click', () => {
+      if (selectMode) {
+        endSelect();
+        say('');
+        return;
+      }
+      selectMode = true;
+      boxButton.classList.add('active');
+      boxButton.textContent = '取消框選';
+      say('框選中:先點地圖上的一個角,再點對角,框內(符合目前樹種篩選)的樹會全部加入清單。按 Esc 取消。');
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && selectMode) {
+        endSelect();
+        say('');
+      }
+    });
+
+    map.on('click', (e) => {
+      if (!selectMode) return;
+      if (!corner) {
+        corner = e.latlng;
+        cornerMarker = L.circleMarker(corner, { radius: 6, color: '#ff6d00', fillColor: '#ff6d00', fillOpacity: 1 }).addTo(map);
+        say('已選第一個角,請點對角');
+        return;
+      }
+      const bounds = L.latLngBounds(corner, e.latlng);
+      const rect = L.rectangle(bounds, { color: '#ff6d00', weight: 2, fillOpacity: 0.1 }).addTo(map);
+      setTimeout(() => map.removeLayer(rect), 1500);
+      const inside = treesInBounds(visible, {
+        south: bounds.getSouth(),
+        west: bounds.getWest(),
+        north: bounds.getNorth(),
+        east: bounds.getEast(),
+      });
+      inside.forEach((t) => printList.add(t.no));
+      saveSet(KEY_LIST, printList);
+      inside.forEach((t) => refreshMarker(t.no));
+      endSelect();
+      say(`框內 ${inside.length} 棵已加入清單,清單共 ${printList.size} 棵`);
+    });
+
+    document.getElementById('add-filtered').addEventListener('click', () => {
+      visible.forEach((t) => printList.add(t.no));
+      saveSet(KEY_LIST, printList);
+      visible.forEach((t) => refreshMarker(t.no));
+      say(`已加入目前顯示的 ${visible.length} 棵,清單共 ${printList.size} 棵`);
+    });
+
+    document.getElementById('clear-list').addEventListener('click', () => {
+      if (printList.size === 0) return;
+      if (!window.confirm(`確定清空列印清單(${printList.size} 棵)?`)) return;
+      const cleared = [...printList];
+      printList.clear();
+      saveSet(KEY_LIST, printList);
+      cleared.forEach(refreshMarker);
+      say('已清空列印清單');
+    });
+
+    document.getElementById('make-labels').addEventListener('click', () => {
+      if (printList.size === 0) {
+        say('列印清單是空的,請先點樹「加入列印清單」或用「框選加入清單」', true);
+        return;
+      }
+      window.location.href = './qrcodes.html';
+    });
+
+    speciesSelect.addEventListener('change', () => {
+      say('');
+      render();
+    });
+
+    try {
+      const res = await fetch('../data/nkhs-trees.json');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      trees = data.trees;
+
+      for (const { name, count } of speciesSummary(trees)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = `${name}(${count})`;
+        speciesSelect.append(option);
+      }
+
+      const bounds = L.latLngBounds(trees.map((t) => [t.y, t.x]));
+      map.fitBounds(bounds, { padding: [20, 20] });
+      render();
+    } catch (err) {
+      statsEl.textContent = '';
+      say(`載入樹木資料失敗:${err.message}`, true);
+    }
+  </script>
+</body>
+</html>

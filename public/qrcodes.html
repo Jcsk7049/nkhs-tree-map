@@ -27,7 +27,12 @@
     .label { border: 1px dashed #888; padding: 4mm; text-align: center; break-inside: avoid; page-break-inside: avoid; }
     .label svg { width: 100%; height: auto; display: block; margin: 0 auto; }
     .label .id { font-size: 22px; font-weight: bold; margin-top: 2mm; word-break: break-all; }
+    .label .sp { font-size: 14px; margin-top: 1mm; }
     .label .cap { font-size: 11px; color: #444; margin-top: 1mm; }
+    #from-map { display: none; background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 6px; padding: 8px 12px; margin: 0 0 14px; font-size: 14px; }
+    #from-map button { margin: 6px 0 0; padding: 4px 10px; font-size: 14px; }
+    .check { display: flex; align-items: center; gap: 6px; }
+    .check input { width: auto; }
 
     @page { size: A4; margin: 10mm; }
     @media print {
@@ -39,6 +44,7 @@
 </head>
 <body>
   <div class="tool">
+    <p class="hint"><a href="./map.html">← 回樹木地圖(在地圖上選樹,清單會自動帶到這裡)</a></p>
     <h1>樹木 QRCode 標籤產生器</h1>
     <p class="hint">產生後按「列印」,印表機選「另存為 PDF」或直接印在貼紙上。QR 內容是各樹的量測登記網址。</p>
 
@@ -48,6 +54,8 @@
         <input type="text" id="base-url" />
       </label>
     </fieldset>
+
+    <div id="from-map"></div>
 
     <fieldset>
       <legend>2. 樹編號</legend>
@@ -61,6 +69,8 @@
       <label>編號清單(每行一個,也可用逗號分隔;重複的會自動合併)
         <textarea id="id-list" placeholder="A-001&#10;A-002&#10;B-015"></textarea>
       </label>
+      <label class="check"><input type="checkbox" id="walk-order" checked />
+        依地圖座標排序(北到南、蛇行,貼牌時走一圈不用來回跑;不在地圖上的編號排最後)</label>
     </fieldset>
 
     <button type="button" class="primary" id="generate">產生標籤</button>
@@ -73,6 +83,19 @@
   <script type="module">
     import qrcode from './vendor/qrcode.mjs';
     import { generateRange, parseIdList, mergeIds, buildTreeUrl, MAX_LABELS } from '../src/qrLabels.js';
+    import { indexTrees, orderIdsForWalking } from '../src/treeData.js';
+
+    const KEY_LIST = 'tree-map-print-list';
+    const WALK_BAND_DEG = 0.00015; // 約 16 公尺一帶
+
+    // 樹種快照載入失敗(例如離線)不影響產生標籤,只是標籤上不印樹種、不能依座標排序。
+    let treeIndex = new Map();
+    const snapshotReady = fetch('../data/nkhs-trees.json')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => {
+        treeIndex = indexTrees(data.trees);
+      })
+      .catch(() => {});
 
     const baseUrlInput = document.getElementById('base-url');
     const listInput = document.getElementById('id-list');
@@ -96,6 +119,36 @@
       say('注意:目前是本機網址,印出來的 QR 只有這台電腦掃得到。正式列印請從正式網站開啟本頁,或在上方手動填入正式網址。', 'warn');
     }
 
+    const fromMapEl = document.getElementById('from-map');
+    function loadMapList() {
+      try {
+        const ids = JSON.parse(localStorage.getItem(KEY_LIST) || '[]');
+        return Array.isArray(ids) ? ids.map(String) : [];
+      } catch (err) {
+        return [];
+      }
+    }
+    const mapIds = loadMapList();
+    if (mapIds.length > 0) {
+      listInput.value = mapIds.join('\n');
+      fromMapEl.style.display = 'block';
+      fromMapEl.append(`已從地圖帶入 ${mapIds.length} 棵樹的列印清單。 `);
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.textContent = '清除地圖清單';
+      clearBtn.addEventListener('click', () => {
+        try {
+          localStorage.removeItem(KEY_LIST);
+        } catch (err) {
+          /* 清不掉也不影響本頁 */
+        }
+        listInput.value = '';
+        fromMapEl.style.display = 'none';
+        say('已清除地圖清單');
+      });
+      fromMapEl.append(clearBtn);
+    }
+
     document.getElementById('add-range').addEventListener('click', () => {
       try {
         const ids = generateRange({
@@ -112,11 +165,15 @@
       }
     });
 
-    document.getElementById('generate').addEventListener('click', () => {
+    document.getElementById('generate').addEventListener('click', async () => {
       sheetEl.textContent = '';
       printButton.disabled = true;
+      await snapshotReady;
 
-      const ids = parseIdList(listInput.value);
+      let ids = parseIdList(listInput.value);
+      if (document.getElementById('walk-order').checked) {
+        ids = orderIdsForWalking(ids, treeIndex, WALK_BAND_DEG);
+      }
       if (ids.length === 0) {
         say('請先輸入樹編號(用範圍加入或直接貼清單)', 'error');
         return;
@@ -148,7 +205,15 @@
           capEl.className = 'cap';
           capEl.textContent = '掃碼登記樹高與樹圍';
 
-          label.append(qrBox, idEl, capEl);
+          label.append(qrBox, idEl);
+          const tree = treeIndex.get(id);
+          if (tree) {
+            const spEl = document.createElement('div');
+            spEl.className = 'sp';
+            spEl.textContent = tree.sp;
+            label.append(spEl);
+          }
+          label.append(capEl);
           fragment.append(label);
         }
         sheetEl.append(fragment);
