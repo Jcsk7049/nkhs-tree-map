@@ -55,7 +55,7 @@
   </div>
   <div id="gated" hidden>
   <div class="tool">
-    <p class="hint"><a href="./teacher.html">← 教師端</a> ｜ <a href="./map.html">回樹木地圖(在地圖上選樹,清單會自動帶到這裡)</a></p>
+    <p class="hint" data-embed-hide><a href="./teacher.html">← 教師端</a> ｜ <a href="./map.html">回樹木地圖(在地圖上選樹,清單會自動帶到這裡)</a></p>
     <h1>樹木 QRCode 標籤產生器</h1>
     <p class="hint">產生後按「列印」,印表機選「另存為 PDF」或直接印在貼紙上。QR 內容是各樹的量測登記網址。</p>
 
@@ -98,6 +98,9 @@
     import { indexTrees, orderIdsForWalking } from '../src/treeData.js';
     import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
     import { requireTeacher } from '../src/teacherGate.js';
+    import { applyEmbedMode } from '../src/embed.js';
+
+    applyEmbedMode(document, window.location.search);
 
     await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
 

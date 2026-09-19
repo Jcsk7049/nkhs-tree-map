@@ -36,7 +36,7 @@
   </div>
   <div id="gated" hidden>
   <div id="bar">
-    <a href="./teacher.html">← 教師端</a>
+    <a href="./teacher.html" data-embed-hide>← 教師端</a>
     <strong>南港高工樹木地圖</strong>
     <label>樹種
       <select id="species-filter"><option value="">全部</option></select>
@@ -65,8 +65,11 @@
     import { colorForHeight, heightBands, matchSummary, NO_DATA_COLOR } from '../src/heightColors.js';
     import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
     import { requireTeacher } from '../src/teacherGate.js';
+    import { applyEmbedMode, withEmbed } from '../src/embed.js';
 
     // 教師登入通過、內容顯示後才初始化地圖(Leaflet 需要容器有實際尺寸)。
+    applyEmbedMode(document, window.location.search);
+
     await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
 
     const L = window.L;
@@ -329,7 +332,7 @@
         say('列印清單是空的,請先點樹「加入列印清單」或用「框選加入清單」', true);
         return;
       }
-      window.location.href = './qrcodes.html';
+      window.location.href = withEmbed('./qrcodes.html', window.location.search);
     });
 
     let loadingSummary = false;
