@@ -1,15 +1,14 @@
 {
+  "id": "./app.html",
   "name": "校園樹木量測登記",
   "short_name": "樹木量測",
-  "start_url": "./tree.html",
+  "start_url": "./app.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2e7d32",
   "icons": [
-    {
-      "src": "./icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    }
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }

@@ -53,7 +53,7 @@
   </div>
 
   <main id="gated" hidden>
-    <p class="hint no-print"><a href="./teacher.html">← 教師端</a></p>
+    <p class="hint no-print" data-embed-hide><a href="./teacher.html">← 教師端</a></p>
     <h1 class="no-print">學生名單與通行碼</h1>
     <p class="hint no-print">學生要有老師發的「個人通行碼」才能送出量測。通行碼在伺服器只存雜湊,連管理者都看不到明碼——<strong>產生後請立刻列印</strong>,忘了就用「重設」重發。</p>
 
@@ -89,9 +89,12 @@
   </main>
 
   <script type="module">
+    import { applyEmbedMode } from '../src/embed.js';
     import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
     import { requireTeacher } from '../src/teacherGate.js';
     import { parseRosterText } from '../src/roster.js';
+
+    applyEmbedMode(document, window.location.search);
 
     const teacher = await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
 

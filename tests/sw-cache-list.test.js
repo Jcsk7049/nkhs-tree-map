@@ -24,3 +24,11 @@ describe('CACHE_FILES', () => {
     expect(unique.size).toBe(CACHE_FILES.length);
   });
 });
+
+describe('sw.js fetch 比對', () => {
+  it('用 ignoreSearch,讓 tree.html?embed=1&treeId=… 離線也命中快取', async () => {
+    const { readFileSync } = await import('node:fs');
+    const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
+    expect(sw).toMatch(/caches\.match\(event\.request,\s*\{\s*ignoreSearch:\s*true\s*\}\)/);
+  });
+});
