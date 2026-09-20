@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { csvEscape, formatTaiwanTime, buildTreeCsv, csvFilename } from '../src/exportCsv.js';
+import { csvEscape, formatTaiwanTime, buildTreeCsv, csvFilename, buildTreeRows, buildTreeXlsx } from '../src/exportCsv.js';
 
 describe('csvEscape', () => {
   it('一般字串與數字原樣,null/undefined 為空字串', () => {
@@ -76,8 +76,6 @@ describe('csvFilename', () => {
   });
 });
 
-import { buildTreeRows, buildTreeXlsx } from '../src/exportCsv.js';
-
 describe('buildTreeRows', () => {
   const trees = [{ no: '10', sp: '榕樹' }, { no: '2', sp: '樟樹' }, { no: '3', sp: '楓香,特別' }];
   const byNo = new Map([
@@ -108,5 +106,16 @@ describe('buildTreeXlsx', () => {
     const text = new TextDecoder().decode(bytes);
     expect(text).toContain('<c r="A2"><v>43667</v></c>');
     expect(text).toContain('<c r="C2"><v>2.34</v></c>');
+  });
+  it('非數字樹號維持 inlineStr', () => {
+    const bytes = buildTreeXlsx([{ no: 'A-023', sp: '榕樹' }], new Map([['A-023', { no: 'A-023', height: 1, girth: 2, at: '2026-09-19T16:15:00.000Z', n: 1 }]]));
+    expect(new TextDecoder().decode(bytes)).toContain('<c r="A2" t="inlineStr">');
+  });
+  it('onlyMeasured:false 的未量測列只輸出 A、B 儲存格', () => {
+    const bytes = buildTreeXlsx([{ no: '7', sp: '樟樹' }], new Map(), { onlyMeasured: false });
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain('r="A2"');
+    expect(text).toContain('r="B2"');
+    expect(text).not.toContain('r="C2"');
   });
 });

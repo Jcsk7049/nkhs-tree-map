@@ -14,7 +14,10 @@ function readZip(bytes) {
   }
   expect(eocd).toBeGreaterThanOrEqual(0);
   const count = u16(bytes, eocd + 10);
-  let p = u32(bytes, eocd + 16);
+  const cdSize = u32(bytes, eocd + 12);
+  const cdOffset = u32(bytes, eocd + 16);
+  expect(cdOffset + cdSize).toBe(eocd);
+  let p = cdOffset;
   const files = {};
   for (let i = 0; i < count; i += 1) {
     expect(u32(bytes, p)).toBe(0x02014b50);
@@ -68,14 +71,19 @@ describe('buildXlsx', () => {
   ];
   const files = readZip(buildXlsx(rows, { columnWidths: [12, 16] }));
 
-  it('包含 5 個必要部件', () => {
+  it('包含 6 個必要部件', () => {
     expect(Object.keys(files).sort()).toEqual([
       '[Content_Types].xml',
       '_rels/.rels',
       'xl/_rels/workbook.xml.rels',
+      'xl/styles.xml',
       'xl/workbook.xml',
       'xl/worksheets/sheet1.xml',
     ]);
+    expect(Object.keys(files)[0]).toBe('[Content_Types].xml');
+    expect(files['[Content_Types].xml']).toContain('<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>');
+    expect(files['xl/_rels/workbook.xml.rels']).toContain('<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>');
+    expect(files['xl/styles.xml']).toContain('<styleSheet');
   });
   it('每個 XML 部件都以 XML 宣告開頭(格式良好性由 Step 6 的 Python minidom 解析驗證)', () => {
     for (const [name, xml] of Object.entries(files)) {
@@ -119,6 +127,22 @@ describe('buildXlsx', () => {
     const m = f['xl/workbook.xml'].match(/<sheet name="([^"]*)"/)[1];
     expect(m.startsWith('A&amp;B')).toBe(true);
     expect(m.replace(/&amp;/g, '&').length).toBeLessThanOrEqual(31);
+  });
+});
+
+describe('buildXlsx 工作表名稱清理', () => {
+  const nameOf = (opts) => readZip(buildXlsx([[1]], opts))['xl/workbook.xml'].match(/<sheet name="([^"]*)"/)[1];
+  it('移除 Excel 禁用字元', () => {
+    expect(nameOf({ sheetName: 'a:b/c?d*e[f]g\\h' })).not.toMatch(/[:\\/?*[\]]/);
+  });
+  it('去除頭尾單引號', () => {
+    const n = nameOf({ sheetName: "'x'" });
+    expect(n.startsWith("'")).toBe(false);
+    expect(n.endsWith("'")).toBe(false);
+  });
+  it('空白或空字串退回預設名稱', () => {
+    expect(nameOf({ sheetName: '   ' })).toBe('量測');
+    expect(nameOf({ sheetName: '' })).toBe('量測');
   });
 });
 
