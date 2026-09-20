@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../public/scan.html', import.meta.url), 'utf8');
+const cameraSrc = readFileSync(new URL('../src/cameraSession.js', import.meta.url), 'utf8');
 
 describe('scan.html 掃描頁(原始碼層級檢查)', () => {
   it('載入本地 jsQR 與純函式模組,不載入教師登入或外部腳本', () => {
@@ -29,7 +30,8 @@ describe('scan.html 掃描頁(原始碼層級檢查)', () => {
     expect(html).toMatch(/e\.origin\s*!==\s*(window\.)?location\.origin|event\.origin\s*!==\s*(window\.)?location\.origin/);
     expect(html).toContain("'pagehide'");
     expect(html).toContain('visibilitychange');
-    expect(html).toMatch(/getTracks\(\)\.forEach\(\(\w+\) => \w+\.stop\(\)\)/);
+    expect(html).toMatch(/session\.stop\(\)/);
+    expect(cameraSrc).toMatch(/getTracks\(\)\.forEach\(\(\w+\) => \w+\.stop\(\)\)/);
   });
   it('掃到後用 textContent 顯示樹號與樹種,並以 trees.html 相同方式進入量測', () => {
     expect(html).toMatch(/parseTreeIdFromQr\(/);
@@ -41,5 +43,13 @@ describe('scan.html 掃描頁(原始碼層級檢查)', () => {
     expect(html).toContain('相機 App');
     expect(html).toMatch(/<html lang="zh-Hant-TW"/);
     expect(html).toMatch(/name="viewport"/);
+  });
+  it('相機生命週期:用 cameraSession、檢查 jsQR、tick 有 try/catch、只信 parent 的訊息', () => {
+    expect(html).toMatch(/from\s+'\.\.\/src\/cameraSession\.js'/);
+    expect(html).toMatch(/typeof window\.jsQR\s*!==\s*'function'/);
+    expect(html).toMatch(/try\s*\{[\s\S]*window\.jsQR\([\s\S]*\}\s*catch/);
+    expect(html).toMatch(/e\.source\s*!==\s*window\.parent/);
+    expect(html).toMatch(/session\.stop\(\)/);
+    expect(html).toMatch(/tabHidden/);
   });
 });

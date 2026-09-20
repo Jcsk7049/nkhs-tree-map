@@ -47,6 +47,7 @@
     import { parseTreeIdFromQr } from '../src/qrScan.js';
     import { isEmbedded } from '../src/embed.js';
     import { buildHash } from '../src/appShell.js';
+    import { createCameraSession } from '../src/cameraSession.js';
 
     const stage = document.getElementById('stage');
     const video = document.getElementById('video');
@@ -64,7 +65,9 @@
     let officialNos = new Set();
     let treeByNo = new Map();
     let treesLoaded = false;
-    let stream = null;
+    const session = createCameraSession({ getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c) });
+    let starting = false;
+    let tabHidden = false;
     let scanning = false;
     let timer = 0;
     let lastHintAt = 0;
@@ -91,10 +94,7 @@
     function stopCamera() {
       scanning = false;
       clearTimeout(timer);
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-        stream = null;
-      }
+      session.stop();
       video.srcObject = null;
       stage.hidden = true;
     }
@@ -104,7 +104,7 @@
       stopCamera();
       if (foundEl.hidden) {
         startBtn.hidden = false;
-        say('');
+        if (!statusEl.classList.contains('error')) say('');
       }
     }
 
@@ -124,20 +124,32 @@
     }
 
     async function startCamera() {
+      if (starting || tabHidden) return;
+      if (typeof window.jsQR !== 'function') {
+        startBtn.hidden = false;
+        say('掃描元件載入失敗,請重新整理;也可以用手機內建相機 App 掃樹牌。', true);
+        return;
+      }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         say('這個瀏覽器不能使用相機,請改用手機內建的相機 App 掃樹牌。', true);
         return;
       }
+      starting = true;
       startBtn.disabled = true;
       say('正在開啟相機…');
       try {
         await loadTrees();
-        stream = await navigator.mediaDevices.getUserMedia({
+        const stream = await session.start({
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false,
         });
+        if (!stream) return; // 等待期間被 stop() 或新的 start() 取代
         video.srcObject = stream;
         await video.play();
+        if (tabHidden || !session.isActive()) {
+          stopCamera();
+          return;
+        }
         foundEl.hidden = true;
         startBtn.hidden = true;
         stage.hidden = false;
@@ -149,20 +161,30 @@
         startBtn.hidden = false;
         say(explainCameraError(err), true);
       } finally {
+        starting = false;
         startBtn.disabled = false;
       }
     }
 
     function tick() {
       if (!scanning) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-        const scale = Math.min(1, MAX_DECODE_WIDTH / video.videoWidth);
-        canvas.width = Math.round(video.videoWidth * scale);
-        canvas.height = Math.round(video.videoHeight * scale);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = window.jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
-        if (code && code.data) handleScan(code.data);
+      try {
+        if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+          const scale = Math.min(1, MAX_DECODE_WIDTH / video.videoWidth);
+          const w = Math.round(video.videoWidth * scale);
+          const h = Math.round(video.videoHeight * scale);
+          if (canvas.width !== w) canvas.width = w;
+          if (canvas.height !== h) canvas.height = h;
+          ctx.drawImage(video, 0, 0, w, h);
+          const image = ctx.getImageData(0, 0, w, h);
+          const code = window.jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
+          if (code && code.data) handleScan(code.data);
+        }
+      } catch (err) {
+        stopCamera();
+        startBtn.hidden = false;
+        say('掃描元件載入失敗,請重新整理;也可以用手機內建相機 App 掃樹牌。', true);
+        return;
       }
       if (scanning) timer = setTimeout(tick, SCAN_INTERVAL_MS);
     }
@@ -209,10 +231,16 @@
 
     // 殼層切換分頁時通知是否顯示;被切走就立刻關相機(省電、隱私)。只接受同源訊息。
     window.addEventListener('message', (e) => {
-      if (e.origin !== window.location.origin || !e.data || e.data.type !== 'tab-visibility') return;
-      if (e.data.visible === false) toIdle();
+      if (e.source !== window.parent || e.origin !== window.location.origin || !e.data || e.data.type !== 'tab-visibility') return;
+      if (e.data.visible === false) {
+        tabHidden = true;
+        toIdle();
+      } else if (e.data.visible === true) {
+        tabHidden = false;
+      }
     });
     document.addEventListener('visibilitychange', () => {
+      tabHidden = document.hidden;
       if (document.hidden) toIdle();
     });
     window.addEventListener('pagehide', stopCamera);

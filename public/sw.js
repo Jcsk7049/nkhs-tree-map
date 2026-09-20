@@ -33,6 +33,7 @@ const CACHE_FILES = [
   '../src/heightColors.js',
   '../src/embed.js',
   '../src/qrScan.js',
+  '../src/cameraSession.js',
 ];
 
 self.addEventListener('install', (event) => {
