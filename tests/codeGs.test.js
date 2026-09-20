@@ -22,6 +22,7 @@ class FakeSheet {
   }
   getMaxColumns() { return 26; }
   getLastRow() { return this.rows.length; }
+  deleteRow(n) { this.rows.splice(n - 1, 1); }
   getRange(r, c, nr = 1, nc = 1) {
     const sheet = this;
     return {
@@ -64,6 +65,7 @@ function loadScript({ records = [], students, teachers } = {}) {
     CacheService: {
       getScriptCache: () => ({
         get: (k) => (cacheStore.has(k) ? cacheStore.get(k) : null),
+        getAll: (keys) => Object.fromEntries(keys.filter((k) => cacheStore.has(k)).map((k) => [k, cacheStore.get(k)])),
         put: (k, v) => { cacheStore.set(k, v); },
         remove: (k) => { stats.cacheRemoves += 1; cacheStore.delete(k); },
       }),
@@ -505,7 +507,7 @@ describe('學生名單管理(老師專用)', () => {
     const env = withTeacher();
     const codes = enroll(env, [['301-12', '王小明']]);
     const res = teacherCall(env, 'roster-list');
-    expect(res.students).toEqual([{ classNo: '301-12', name: '王小明', status: '啟用', updatedAt: expect.any(String) }]);
+    expect(res.students).toEqual([{ classNo: '301-12', name: '王小明', status: '啟用', updatedAt: expect.any(String), locked: false }]);
     const text = JSON.stringify(res);
     expect(text).not.toContain(codes['301-12']);
     expect(text).not.toMatch(/[0-9a-f]{64}/);
@@ -730,5 +732,114 @@ describe('Code.gs 公開端點:summary / history / 其他 GET', () => {
       expect(JSON.parse(out.text).code).toBe('VALIDATION_FAILED');
       for (const secret of SECRETS) expect(out.text).not.toContain(secret);
     }
+  });
+});
+
+describe('老師動作:解除鎖定與 locked 欄位', () => {
+  const lockedSetup = () => {
+    const env = withTeacher();
+    const codes = enroll(env, [['301-12', '王小明'], ['301-13', '李小華']]);
+    const bad = env.sandbox.formatCode(env.sandbox.generateCode());
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) submit(env, measurement({ studentClassNo: '301-12', studentCode: bad, clientRecordId: `x${i}` }));
+    return { env, codes };
+  };
+
+  it('roster-list 標出被鎖定的學生,未鎖定為 false', () => {
+    const { env } = lockedSetup();
+    const list = teacherCall(env, 'roster-list').students;
+    expect(list.find((s) => s.classNo === '301-12').locked).toBe(true);
+    expect(list.find((s) => s.classNo === '301-13').locked).toBe(false);
+  });
+
+  it('roster-unlock 解除鎖定:學生可再用原通行碼送出,且不換通行碼', () => {
+    const { env, codes } = lockedSetup();
+    expect(submit(env, measurement({ studentClassNo: '301-12', studentCode: codes['301-12'] })).code).toBe('STUDENT_LOCKED');
+    const res = teacherCall(env, 'roster-unlock', { classNo: '301-12' });
+    expect(res).toEqual({ status: 'ok', classNo: '301-12' });
+    expect(submit(env, measurement({ studentClassNo: '301-12', studentCode: codes['301-12'], clientRecordId: 'after' })).status).toBe('ok');
+    expect(teacherCall(env, 'roster-list').students.find((s) => s.classNo === '301-12').locked).toBe(false);
+  });
+
+  it('roster-unlock 找不到學生 → VALIDATION_FAILED;非老師被拒', () => {
+    const env = withTeacher();
+    expect(teacherCall(env, 'roster-unlock', { classNo: '999-99' }).code).toBe('VALIDATION_FAILED');
+    expect(teacherCall(env, 'roster-unlock', { classNo: '301-12' }, 'stranger@x.tw').code).toBe('TEACHER_REJECTED');
+  });
+
+  it('超過 100 位學生時 locked 仍正確(getAll 分批)', () => {
+    const env = withTeacher();
+    const list = Array.from({ length: 150 }, (_, i) => [`3${String(i).padStart(2, '0')}-01`, `學生${i}`]);
+    enroll(env, list);
+    const bad = env.sandbox.formatCode(env.sandbox.generateCode());
+    for (let i = 0; i < env.sandbox.MAX_FAILS; i += 1) submit(env, measurement({ studentClassNo: '3149-01', studentCode: bad, clientRecordId: `y${i}` }));
+    const students = teacherCall(env, 'roster-list').students;
+    expect(students).toHaveLength(150);
+    expect(students.filter((s) => s.locked).map((s) => s.classNo)).toEqual(['3149-01']);
+  });
+});
+
+describe('老師動作:教師信箱管理', () => {
+  it('teacher-list 回小寫信箱、略過空列', () => {
+    const env = loadScript({ teachers: [['Boss@School.tw'], [''], ['b@x.tw']] });
+    expect(teacherCall(env, 'teacher-list', {}, 'boss@school.tw').emails).toEqual(['boss@school.tw', 'b@x.tw']);
+  });
+
+  it('teacher-add:新增後該信箱可登入;轉小寫;重複回 duplicate 不多寫一列', () => {
+    const env = withTeacher();
+    const res = teacherCall(env, 'teacher-add', { email: '  New@School.TW ' });
+    expect(res).toEqual({ status: 'ok', email: 'new@school.tw', duplicate: false });
+    expect(teacherCall(env, 'teacher-check', {}, 'new@school.tw').status).toBe('ok');
+    const again = teacherCall(env, 'teacher-add', { email: 'NEW@school.tw' });
+    expect(again.duplicate).toBe(true);
+    expect(env.sheets['教師名單'].rows).toHaveLength(3);
+  });
+
+  it('teacher-add:格式錯誤被拒(缺 @、空白、超長)', () => {
+    const env = withTeacher();
+    for (const bad of ['', 'abc', 'a@b', 'a b@c.tw', `${'x'.repeat(250)}@c.tw`, null]) {
+      expect(teacherCall(env, 'teacher-add', { email: bad }).code, String(bad)).toBe('VALIDATION_FAILED');
+    }
+    expect(env.sheets['教師名單'].rows).toHaveLength(2);
+  });
+
+  it('teacher-add:達 100 位上限後拒絕', () => {
+    const env = loadScript({ teachers: [[BOSS], ...Array.from({ length: 99 }, (_, i) => [`t${i}@school.tw`])] });
+    expect(teacherCall(env, 'teacher-add', { email: 'one-more@school.tw' }).code).toBe('VALIDATION_FAILED');
+  });
+
+  it('teacher-add:以 = + - @ 開頭的信箱被拒絕,不會寫進 Sheet', () => {
+    const env = withTeacher();
+    for (const bad of ['=cmd@x.tw', '+a@x.tw', '-a@x.tw', '@a@x.tw']) {
+      expect(teacherCall(env, 'teacher-add', { email: bad }).code, bad).toBe('VALIDATION_FAILED');
+    }
+    expect(env.sheets['教師名單'].rows).toHaveLength(2);
+  });
+
+  it('teacher-remove:可移除其他老師,被移除者立刻不能登入', () => {
+    const env = loadScript({ teachers: [[BOSS], ['other@school.tw']] });
+    expect(teacherCall(env, 'teacher-remove', { email: 'OTHER@school.tw' })).toEqual({ status: 'ok', email: 'other@school.tw' });
+    expect(teacherCall(env, 'teacher-check', {}, 'other@school.tw').code).toBe('TEACHER_REJECTED');
+  });
+
+  it('teacher-remove:不能移除自己(大小寫不同也算)', () => {
+    const env = loadScript({ teachers: [[BOSS], ['other@school.tw']] });
+    const res = teacherCall(env, 'teacher-remove', { email: 'BOSS@school.tw' });
+    expect(res.code).toBe('VALIDATION_FAILED');
+    expect(res.error).toBe('不能移除自己的帳號');
+    expect(env.sheets['教師名單'].rows).toHaveLength(3);
+  });
+
+  it('teacher-remove:找不到 → 錯誤;至少保留一位', () => {
+    const env = withTeacher();
+    expect(teacherCall(env, 'teacher-remove', { email: 'ghost@school.tw' }).error).toBe('名單裡找不到這個信箱');
+    // 名單只剩呼叫者一位時,即使目標是別人(不存在)也不會清空名單
+    expect(env.sheets['教師名單'].rows).toHaveLength(2);
+  });
+
+  it('非老師不能增刪教師', () => {
+    const env = withTeacher();
+    expect(teacherCall(env, 'teacher-add', { email: 'a@b.tw' }, 'stranger@x.tw').code).toBe('TEACHER_REJECTED');
+    expect(teacherCall(env, 'teacher-remove', { email: BOSS }, 'stranger@x.tw').code).toBe('TEACHER_REJECTED');
+    expect(teacherCall(env, 'teacher-list', {}, 'stranger@x.tw').code).toBe('TEACHER_REJECTED');
   });
 });

@@ -522,6 +522,30 @@ function writeStudentRow(sheet, rowIndex, classNo, name, hash, status) {
   ]]);
 }
 
+// 連錯計數存在 CacheService;getAll 一次最多 100 個鍵,所以分批查。快取查不到/出錯一律當作未鎖定。
+var CACHE_GET_ALL_LIMIT = 100;
+
+function lockedClassNos(classNos) {
+  var locked = Object.create(null);
+  try {
+    var cache = CacheService.getScriptCache();
+    for (var i = 0; i < classNos.length; i += CACHE_GET_ALL_LIMIT) {
+      var keys = classNos.slice(i, i + CACHE_GET_ALL_LIMIT).map(function (c) {
+        return FAIL_KEY_PREFIX + normalizeClassNo(c);
+      });
+      var got = cache.getAll(keys);
+      for (var j = 0; j < keys.length; j++) {
+        if (Number(got[keys[j]] || 0) >= MAX_FAILS) {
+          locked[keys[j]] = true;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('讀取鎖定狀態失敗,一律視為未鎖定: ' + err);
+  }
+  return locked;
+}
+
 function rosterList() {
   var rows = studentSheet().getDataRange().getValues();
   var students = [];
@@ -537,6 +561,10 @@ function rosterList() {
       updatedAt: updated instanceof Date ? updated.toISOString() : String(updated),
     });
   }
+  var locked = lockedClassNos(students.map(function (s) { return s.classNo; }));
+  students.forEach(function (s) {
+    s.locked = Boolean(locked[FAIL_KEY_PREFIX + normalizeClassNo(s.classNo)]);
+  });
   return jsonOutput({ status: 'ok', students: students });
 }
 
@@ -649,6 +677,108 @@ function rosterSetStatus(classNoRaw, status) {
   }
 }
 
+function rosterUnlock(classNoRaw) {
+  var classNo = normalizeClassNo(classNoRaw);
+  if (!findStudent(studentSheet(), classNo)) {
+    return errorOutput('VALIDATION_FAILED', '名簿裡找不到這位學生');
+  }
+  CacheService.getScriptCache().remove(FAIL_KEY_PREFIX + classNo); // 只清連錯計數,不動通行碼
+  return jsonOutput({ status: 'ok', classNo: classNo });
+}
+
+// ---------------------------------------------------------------------------
+// 教師信箱管理(所有老師權限相同)
+// ---------------------------------------------------------------------------
+
+var EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+var MAX_EMAIL_LENGTH = 254;
+var MAX_TEACHERS = 100;
+
+function normalizeEmail(value) {
+  return String(value === null || value === undefined ? '' : value).trim().toLowerCase();
+}
+
+function teacherSheet() {
+  return getOrCreateSheet(SHEET_NAME_TEACHERS, TEACHER_HEADER);
+}
+
+/** 回傳 [{email, row}](row 為 1-based 列號),略過空列。 */
+function teacherEntries(sheet) {
+  var rows = sheet.getDataRange().getValues();
+  var entries = [];
+  for (var i = 1; i < rows.length; i++) {
+    var email = normalizeEmail(rows[i][0]);
+    if (email !== '') {
+      entries.push({ email: email, row: i + 1 });
+    }
+  }
+  return entries;
+}
+
+function teacherList() {
+  return jsonOutput({
+    status: 'ok',
+    emails: teacherEntries(teacherSheet()).map(function (e) { return e.email; }),
+  });
+}
+
+function teacherAdd(emailRaw) {
+  var email = normalizeEmail(emailRaw);
+  if (email.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(email) || /^[=+\-@]/.test(email)) {
+    return errorOutput('VALIDATION_FAILED', '信箱格式不正確');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = teacherSheet();
+    var entries = teacherEntries(sheet);
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].email === email) {
+        return jsonOutput({ status: 'ok', email: email, duplicate: true });
+      }
+    }
+    if (entries.length >= MAX_TEACHERS) {
+      return errorOutput('VALIDATION_FAILED', '教師人數已達上限');
+    }
+    var newRow = sheet.getLastRow() + 1;
+    sheet.getRange(newRow, 1, 1, 1).setNumberFormat('@');
+    sheet.getRange(newRow, 1, 1, 1).setValues([[sanitizeCellText(email)]]);
+    return jsonOutput({ status: 'ok', email: email, duplicate: false });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function teacherRemove(emailRaw, callerEmail) {
+  var email = normalizeEmail(emailRaw);
+  if (email === normalizeEmail(callerEmail)) {
+    return errorOutput('VALIDATION_FAILED', '不能移除自己的帳號');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = teacherSheet();
+    var entries = teacherEntries(sheet);
+    var target = null;
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].email === email) {
+        target = entries[i];
+        break;
+      }
+    }
+    if (!target) {
+      return errorOutput('VALIDATION_FAILED', '名單裡找不到這個信箱');
+    }
+    if (entries.length <= 1) {
+      return errorOutput('VALIDATION_FAILED', '至少要保留一位老師');
+    }
+    sheet.deleteRow(target.row);
+    return jsonOutput({ status: 'ok', email: email });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function handleTeacherAction(data) {
   var teacher = verifyTeacher(data.idToken);
   if (!teacher.ok) {
@@ -665,6 +795,14 @@ function handleTeacherAction(data) {
       return rosterReset(data.classNos);
     case 'roster-status':
       return rosterSetStatus(data.classNo, data.newStatus);
+    case 'roster-unlock':
+      return rosterUnlock(data.classNo);
+    case 'teacher-list':
+      return teacherList();
+    case 'teacher-add':
+      return teacherAdd(data.email);
+    case 'teacher-remove':
+      return teacherRemove(data.email, teacher.email);
     default:
       return errorOutput('VALIDATION_FAILED', '不認得的動作');
   }

@@ -199,6 +199,19 @@
         toggleBtn.dataset.classNo = student.classNo;
         toggleBtn.dataset.next = student.status === '啟用' ? '停用' : '啟用';
         actions.append(resetBtn, toggleBtn);
+        if (student.locked) {
+          const lockNote = document.createElement('span');
+          lockNote.className = 'st-off';
+          lockNote.textContent = '🔒 已鎖定';
+          statusCell.append(' ', lockNote);
+          const unlockBtn = document.createElement('button');
+          unlockBtn.type = 'button';
+          unlockBtn.className = 'small';
+          unlockBtn.textContent = '解除鎖定';
+          unlockBtn.dataset.action = 'unlock';
+          unlockBtn.dataset.classNo = student.classNo;
+          actions.append(unlockBtn);
+        }
       }
       refreshSelection();
     }
@@ -246,6 +259,10 @@
       guarded(async () => {
         if (button.dataset.action === 'reset') {
           await resetCodes([button.dataset.classNo]);
+        } else if (button.dataset.action === 'unlock') {
+          await teacher.call('roster-unlock', { classNo: button.dataset.classNo });
+          say(`${button.dataset.classNo} 已解除鎖定`, 'ok');
+          await loadRoster();
         } else {
           await teacher.call('roster-status', { classNo: button.dataset.classNo, newStatus: button.dataset.next });
           say(`${button.dataset.classNo} 已${button.dataset.next}`, 'ok');

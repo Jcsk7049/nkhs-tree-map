@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { STUDENT_TABS, TEACHER_TABS, tabsFor, parseHash, frameSrc, buildHash } from '../src/appShell.js';
 
 describe('tabsFor', () => {
-  it('老師三個分頁:名單/地圖/QR 標籤', () => {
-    expect(TEACHER_TABS.map((t) => t.id)).toEqual(['roster', 'map', 'labels']);
+  it('老師四個分頁:名單/地圖/QR 標籤/管理', () => {
+    expect(TEACHER_TABS.map((t) => t.id)).toEqual(['roster', 'map', 'labels', 'admin']);
     expect(tabsFor('teacher')).toBe(TEACHER_TABS);
   });
   it('學生兩個分頁:樹木/量測', () => {
@@ -46,6 +46,7 @@ describe('frameSrc / buildHash', () => {
     expect(frameSrc('teacher', 'roster')).toBe('./roster.html?embed=1');
     expect(frameSrc('teacher', 'map')).toBe('./map.html?embed=1');
     expect(frameSrc('teacher', 'labels')).toBe('./qrcodes.html?embed=1');
+    expect(frameSrc('teacher', 'admin')).toBe('./admin.html?embed=1');
   });
   it('學生量測需要樹號,樹號要編碼', () => {
     expect(frameSrc('student', 'measure', {})).toBeNull();

@@ -7,6 +7,7 @@ export const TEACHER_TABS = [
   { id: 'roster', label: '名單', page: 'roster.html' },
   { id: 'map', label: '地圖', page: 'map.html' },
   { id: 'labels', label: 'QR 標籤', page: 'qrcodes.html' },
+  { id: 'admin', label: '管理', page: 'admin.html' },
 ];
 
 const ROLES = { student: STUDENT_TABS, teacher: TEACHER_TABS };
