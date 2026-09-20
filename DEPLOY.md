@@ -88,7 +88,7 @@ git push -u origin master
 - 學生「姓名」由後端依名簿決定,學生不能自己輸入,無法冒名。
 - **設定只有一處**:`src/config.js` 的 `API_URL`、`GOOGLE_CLIENT_ID`(學生頁與所有教師頁都從這裡讀;`tests/duplication-sync.test.js` 會檢查沒有頁面自己寫死,且與 `Code.gs` 的用戶端 ID 一致)。
 - 教師登入狀態存在瀏覽器的 sessionStorage(關掉分頁就沒了);每次開教師頁都會向後端重新確認身分。
-- 離線快取版本 `tree-map-v17`。Service Worker 安裝時以 `cache: 'reload'` 繞過 HTTP 快取,避免新舊檔案混用。
+- 離線快取版本 `tree-map-v18`。Service Worker 安裝時以 `cache: 'reload'` 繞過 HTTP 快取,避免新舊檔案混用。
 
 ### 學生操作流程
 1. 老師在「學生名單與通行碼」貼上名單 → 匯入 → 列印紙條(通行碼只顯示一次)。
@@ -124,3 +124,10 @@ git push -u origin master
 - 已知小限制:
   - 殼層內按硬體返回鍵會直接離開 App
   - 地圖「開啟量測頁」會另開瀏覽器分頁
+
+### 掃描 QR
+- 學生分頁「掃描」:第一次按「開啟相機」會跳出相機權限詢問,選允許。
+- iPhone 獨立 App 若拒絕過權限:到「設定 → 該 App → 相機」開啟。
+- 相機不可用時:改用手機內建相機 App 掃樹牌,會直接打開該樹的量測頁。
+- 影像只在手機上辨識,不存檔、不上傳。
+- 第三方 jsQR(Apache-2.0)放在 `public/vendor/jsqr/`。

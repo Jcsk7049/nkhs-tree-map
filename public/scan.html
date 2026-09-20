@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#2e7d32" />
+  <title>掃描樹上的 QR Code</title>
+  <style>
+    html, body { margin: 0; font-family: sans-serif; color: #1b1b1b; }
+    [hidden] { display: none !important; }
+    main { max-width: 560px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 22px; margin: 4px 0 8px; }
+    .hint { color: #555; font-size: 14px; line-height: 1.6; margin: 0 0 12px; }
+    #stage { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 60vh; background: #000; border-radius: 8px; overflow: hidden; }
+    #video { width: 100%; height: 100%; object-fit: cover; }
+    #stage .frame { position: absolute; inset: 15% 15%; border: 3px solid #fff; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35); pointer-events: none; }
+    button { font-size: 17px; padding: 12px 18px; cursor: pointer; margin: 10px 10px 0 0; border-radius: 6px; border: 1px solid #999; background: #f5f5f5; }
+    button.primary { background: #2e7d32; color: #fff; border: 0; }
+    button[disabled] { opacity: 0.5; }
+    #status { min-height: 1.5em; margin: 10px 0; font-size: 15px; color: #555; }
+    #status.error { color: #c62828; }
+    #found { border: 2px solid #2e7d32; border-radius: 8px; padding: 14px; margin-top: 12px; }
+    #found-title { font-size: 20px; font-weight: bold; margin: 0 0 4px; }
+    .fallback { color: #777; font-size: 13px; line-height: 1.6; margin-top: 20px; }
+  </style>
+  <script src="./vendor/jsqr/jsQR.js"></script>
+</head>
+<body>
+  <main>
+    <h1>掃描樹上的 QR Code</h1>
+    <p class="hint">按下「開啟相機」,把樹牌上的 QR Code 放進白框內,掃到會自動辨識。</p>
+    <div id="stage" hidden>
+      <video id="video" playsinline muted autoplay></video>
+      <div class="frame"></div>
+    </div>
+    <button type="button" class="primary" id="start">開啟相機</button>
+    <div id="status" role="status" aria-live="polite"></div>
+    <section id="found" hidden>
+      <p id="found-title"></p>
+      <button type="button" class="primary" id="go">量測這棵</button>
+      <button type="button" id="again">重新掃描</button>
+    </section>
+    <p class="fallback">相機用不了?也可以直接用手機內建的相機 App 掃樹牌,會打開這棵樹的量測頁。</p>
+  </main>
+
+  <script type="module">
+    import { parseTreeIdFromQr } from '../src/qrScan.js';
+    import { isEmbedded } from '../src/embed.js';
+    import { buildHash } from '../src/appShell.js';
+    import { createCameraSession } from '../src/cameraSession.js';
+
+    const stage = document.getElementById('stage');
+    const video = document.getElementById('video');
+    const startBtn = document.getElementById('start');
+    const statusEl = document.getElementById('status');
+    const foundEl = document.getElementById('found');
+    const foundTitle = document.getElementById('found-title');
+    const goBtn = document.getElementById('go');
+    const againBtn = document.getElementById('again');
+
+    const SCAN_INTERVAL_MS = 120;
+    const MAX_DECODE_WIDTH = 640;
+    const HINT_COOLDOWN_MS = 1500;
+
+    let officialNos = new Set();
+    let treeByNo = new Map();
+    let treesLoaded = false;
+    const session = createCameraSession({ getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c) });
+    let starting = false;
+    let tabHidden = false;
+    let scanning = false;
+    let timer = 0;
+    let lastHintAt = 0;
+    let pendingTreeId = '';
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    function say(text, isError = false) {
+      statusEl.textContent = text;
+      statusEl.className = isError ? 'error' : '';
+    }
+
+    async function loadTrees() {
+      if (treesLoaded) return;
+      const res = await fetch('../data/nkhs-trees.json');
+      if (!res.ok) throw new Error(`樹木名單載入失敗(HTTP ${res.status})`);
+      const { trees } = await res.json();
+      officialNos = new Set(trees.map((t) => t.no));
+      treeByNo = new Map(trees.map((t) => [t.no, t]));
+      treesLoaded = true;
+    }
+
+    // 所有關閉相機的路徑都走這裡:停止解碼、停掉每一條 track(關掉相機指示燈)。
+    function stopCamera() {
+      scanning = false;
+      clearTimeout(timer);
+      session.stop();
+      video.srcObject = null;
+      stage.hidden = true;
+    }
+
+    // 回到「尚未開啟」的畫面(分頁被切走、頁面被隱藏時)。已掃到的結果卡保留。
+    function toIdle() {
+      stopCamera();
+      if (foundEl.hidden) {
+        startBtn.hidden = false;
+        if (!statusEl.classList.contains('error')) say('');
+      }
+    }
+
+    function explainCameraError(err) {
+      switch (err && err.name) {
+        case 'NotAllowedError':
+        case 'SecurityError':
+          return '沒有相機權限。請到手機設定允許這個 App 使用相機,或改用手機內建的相機 App 掃樹牌。';
+        case 'NotFoundError':
+        case 'OverconstrainedError':
+          return '找不到可用的相機。';
+        case 'NotReadableError':
+          return '相機正被其他程式使用,請關閉後再試。';
+        default:
+          return `無法開啟相機(${(err && err.message) || '未知原因'})。`;
+      }
+    }
+
+    async function startCamera() {
+      if (starting || tabHidden) return;
+      if (typeof window.jsQR !== 'function') {
+        startBtn.hidden = false;
+        say('掃描元件載入失敗,請重新整理;也可以用手機內建相機 App 掃樹牌。', true);
+        return;
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        say('這個瀏覽器不能使用相機,請改用手機內建的相機 App 掃樹牌。', true);
+        return;
+      }
+      starting = true;
+      startBtn.disabled = true;
+      say('正在開啟相機…');
+      try {
+        await loadTrees();
+        const stream = await session.start({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        if (!stream) return; // 等待期間被 stop() 或新的 start() 取代
+        video.srcObject = stream;
+        await video.play();
+        if (tabHidden || !session.isActive()) {
+          stopCamera();
+          return;
+        }
+        foundEl.hidden = true;
+        startBtn.hidden = true;
+        stage.hidden = false;
+        scanning = true;
+        say('對準樹牌上的 QR Code…');
+        tick();
+      } catch (err) {
+        stopCamera();
+        startBtn.hidden = false;
+        say(explainCameraError(err), true);
+      } finally {
+        starting = false;
+        startBtn.disabled = false;
+      }
+    }
+
+    function tick() {
+      if (!scanning) return;
+      try {
+        if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+          const scale = Math.min(1, MAX_DECODE_WIDTH / video.videoWidth);
+          const w = Math.round(video.videoWidth * scale);
+          const h = Math.round(video.videoHeight * scale);
+          if (canvas.width !== w) canvas.width = w;
+          if (canvas.height !== h) canvas.height = h;
+          ctx.drawImage(video, 0, 0, w, h);
+          const image = ctx.getImageData(0, 0, w, h);
+          const code = window.jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
+          if (code && code.data) handleScan(code.data);
+        }
+      } catch (err) {
+        stopCamera();
+        startBtn.hidden = false;
+        say('掃描元件載入失敗,請重新整理;也可以用手機內建相機 App 掃樹牌。', true);
+        return;
+      }
+      if (scanning) timer = setTimeout(tick, SCAN_INTERVAL_MS);
+    }
+
+    function handleScan(text) {
+      const result = parseTreeIdFromQr(text, officialNos);
+      if (!result.ok) {
+        const now = Date.now();
+        if (now - lastHintAt > HINT_COOLDOWN_MS) {
+          lastHintAt = now;
+          say(result.reason === 'unknown-tree' ? '這棵樹不在校園樹木名單內。' : '這不是樹木的 QR Code,請對準樹牌。', true);
+        }
+        return;
+      }
+      stopCamera();
+      pendingTreeId = result.treeId;
+      const tree = treeByNo.get(result.treeId);
+      foundTitle.textContent = tree ? `${result.treeId}｜${tree.sp}` : result.treeId;
+      foundEl.hidden = false;
+      startBtn.hidden = true;
+      say('已掃到樹牌!');
+      try { if (navigator.vibrate) navigator.vibrate(60); } catch (err) { /* 不支援震動就算了 */ }
+    }
+
+    // 與 trees.html 相同:殼層內嵌時請殼層切到「量測」分頁;獨立開啟時直接進量測頁。
+    function goMeasure(treeId) {
+      if (isEmbedded(window.location.search) && window.top !== window) {
+        try {
+          window.top.location.hash = buildHash('student', 'measure', { treeId });
+          return;
+        } catch (err) {
+          // 落到下面的整頁導向
+        }
+      }
+      window.location.href = `./tree.html?treeId=${encodeURIComponent(treeId)}`;
+    }
+
+    startBtn.addEventListener('click', startCamera);
+    goBtn.addEventListener('click', () => goMeasure(pendingTreeId));
+    againBtn.addEventListener('click', () => {
+      foundEl.hidden = true;
+      startCamera();
+    });
+
+    // 殼層切換分頁時通知是否顯示;被切走就立刻關相機(省電、隱私)。只接受同源訊息。
+    window.addEventListener('message', (e) => {
+      if (e.source !== window.parent || e.origin !== window.location.origin || !e.data || e.data.type !== 'tab-visibility') return;
+      if (e.data.visible === false) {
+        tabHidden = true;
+        toIdle();
+      } else if (e.data.visible === true) {
+        tabHidden = false;
+      }
+    });
+    document.addEventListener('visibilitychange', () => {
+      tabHidden = document.hidden;
+      if (document.hidden) toIdle();
+    });
+    window.addEventListener('pagehide', stopCamera);
+  </script>
+</body>
+</html>

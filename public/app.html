@@ -103,11 +103,24 @@
     let currentRole = null;
     function updateOffline() { offlineEl.hidden = !(currentRole === 'teacher' && !navigator.onLine); }
 
+    function broadcastVisibility(activeKey) {
+      for (const [key, frame] of frames) {
+        const visible = key === activeKey;
+        frame.hidden = !visible;
+        try {
+          frame.contentWindow.postMessage({ type: 'tab-visibility', visible }, window.location.origin);
+        } catch (err) { /* iframe 尚未載入完成時忽略 */ }
+      }
+    }
+
     function route() {
       const { role, tab, treeId } = parseHash(window.location.hash);
       currentRole = role || null;
       updateOffline();
-      if (!role) return showHome();
+      if (!role) {
+        broadcastVisibility(null);
+        return showHome();
+      }
 
       remember(role);
       home.hidden = true;
@@ -121,13 +134,14 @@
       const activeKey = src ? `${role}/${tab}${useTreeIdInKey ? '/' + treeId : ''}` : null;
       if (src && !frames.has(activeKey)) {
         const frame = document.createElement('iframe');
+        frame.allow = 'camera; geolocation';
         frame.src = src;
         const tabObj = tabsFor(role).find(t => t.id === tab);
         frame.title = tabObj ? tabObj.label : tab;
         framesEl.appendChild(frame);
         frames.set(activeKey, frame);
       }
-      for (const [key, frame] of frames) frame.hidden = key !== activeKey;
+      broadcastVisibility(activeKey);
     }
 
     home.addEventListener('click', (event) => {

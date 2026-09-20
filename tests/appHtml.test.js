@@ -42,4 +42,18 @@ describe('app.html 量測 placeholder', () => {
     expect(html).toMatch(/id="go-trees"/);
     expect(html).not.toContain('之後版本會加入直接選樹');
   });
+  it('iframe 允許相機,且切換分頁時通知各 iframe 是否顯示', () => {
+    expect(html).toMatch(/frame\.allow\s*=\s*'camera; geolocation'/);
+    expect(html).toMatch(/postMessage\(\s*\{\s*type:\s*'tab-visibility'/);
+    expect(html).toMatch(/window\.location\.origin/);
+  });
+  it('回首頁路徑也廣播 visible:false(以 null 呼叫同一個廣播函式),避免相機繼續開著', () => {
+    expect(html).toMatch(/function broadcastVisibility\(activeKey\)/);
+    expect(html).toMatch(/if \(!role\) \{[^}]*broadcastVisibility\(null\)[^}]*showHome\(\)/);
+    expect(html).toMatch(/broadcastVisibility\(activeKey\)/);
+  });
+  it('frame.allow 在 frame.src 之前指定(否則第一次載入沒有相機權限)', () => {
+    expect(html.indexOf('frame.allow')).toBeGreaterThan(-1);
+    expect(html.indexOf('frame.allow')).toBeLessThan(html.indexOf('frame.src ='));
+  });
 });

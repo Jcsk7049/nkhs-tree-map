@@ -6,6 +6,8 @@ export const CACHE_FILES = [
   './app.html',
   './tree.html',
   './trees.html',
+  './scan.html',
+  './vendor/jsqr/jsQR.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -27,4 +29,6 @@ export const CACHE_FILES = [
   '../src/nearby.js',
   '../src/heightColors.js',
   '../src/embed.js',
+  '../src/qrScan.js',
+  '../src/cameraSession.js',
 ];
