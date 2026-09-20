@@ -38,9 +38,12 @@
 
     <section>
       <h2>匯出量測(給 Excel / 回填官方平台)</h2>
-      <p class="hint">每棵樹一列的最新量測:樹號、樹種、樹高、樹圍、量測時間、筆數。不含學生姓名。資料為公開摘要,剛送出的量測最多晚 5 分鐘出現。</p>
+      <p class="hint">每棵樹一列的最新量測:樹號、樹種、樹高、樹圍、量測時間、筆數。不含學生姓名。資料為公開摘要,剛送出的量測最多晚 5 分鐘出現。用 Excel 開啟 .xlsx 即可;CSV 給需要純文字格式的系統使用。</p>
       <label><input type="checkbox" id="only-measured" checked /> 只匯出已有量測的樹</label>
-      <p><button type="button" class="primary" id="export">下載 CSV</button></p>
+      <p>
+        <button type="button" class="primary" id="export-xlsx">下載 Excel (.xlsx)</button>
+        <button type="button" class="small" id="export-csv">改下載 CSV</button>
+      </p>
       <div class="msg" id="export-msg"></div>
     </section>
 
@@ -61,7 +64,7 @@
     import { requireTeacher } from '../src/teacherGate.js';
     import { applyEmbedMode } from '../src/embed.js';
     import { matchSummary } from '../src/heightColors.js';
-    import { buildTreeCsv, csvFilename, formatTaiwanTime } from '../src/exportCsv.js';
+    import { buildTreeCsv, buildTreeXlsx, csvFilename, xlsxFilename, formatTaiwanTime } from '../src/exportCsv.js';
 
     applyEmbedMode(document, window.location.search);
     const me = await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
@@ -81,9 +84,9 @@
 
     // ---- 匯出 ----
     const exportMsg = document.getElementById('export-msg');
-    document.getElementById('export').addEventListener('click', async () => {
-      const button = document.getElementById('export');
-      button.disabled = true;
+    const exportButtons = [document.getElementById('export-xlsx'), document.getElementById('export-csv')];
+    async function runExport(kind) {
+      for (const b of exportButtons) b.disabled = true;
       say(exportMsg, '準備中…');
       try {
         const [treesRes, summaryRes] = await Promise.all([
@@ -97,22 +100,33 @@
         if (body.status !== 'ok') throw new Error(body.error || '後端回應異常');
         const { byNo, measured } = matchSummary(trees, body.trees);
         const onlyMeasured = document.getElementById('only-measured').checked;
-        const csv = buildTreeCsv(trees, byNo, { onlyMeasured });
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        let blob;
+        let filename;
+        if (kind === 'xlsx') {
+          const bytes = buildTreeXlsx(trees, byNo, { onlyMeasured });
+          blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          filename = xlsxFilename(Date.now());
+        } else {
+          const csv = buildTreeCsv(trees, byNo, { onlyMeasured });
+          blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+          filename = csvFilename(Date.now());
+        }
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = csvFilename(Date.now());
+        link.download = filename;
         document.body.append(link);
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-        say(exportMsg, `已下載 ${link.download}(${onlyMeasured ? measured : trees.length} 列)。資料更新時間 ${formatTaiwanTime(body.generatedAt) || '未知'}(台灣時間)`, 'ok');
+        say(exportMsg, `已下載 ${filename}(${onlyMeasured ? measured : trees.length} 列)。資料更新時間 ${formatTaiwanTime(body.generatedAt) || '未知'}(台灣時間)`, 'ok');
       } catch (err) {
         say(exportMsg, `匯出失敗:${err.message}`, 'error');
       } finally {
-        button.disabled = false;
+        for (const b of exportButtons) b.disabled = false;
       }
-    });
+    }
+    document.getElementById('export-xlsx').addEventListener('click', () => runExport('xlsx'));
+    document.getElementById('export-csv').addEventListener('click', () => runExport('csv'));
 
     // ---- 教師帳號 ----
     const bodyEl = document.getElementById('teacher-body');

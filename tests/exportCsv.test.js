@@ -75,3 +75,38 @@ describe('csvFilename', () => {
     expect(csvFilename(Date.parse('2026-09-19T20:00:00Z'))).toBe('nkhs-trees-20260920.csv');
   });
 });
+
+import { buildTreeRows, buildTreeXlsx } from '../src/exportCsv.js';
+
+describe('buildTreeRows', () => {
+  const trees = [{ no: '10', sp: '榕樹' }, { no: '2', sp: '樟樹' }, { no: '3', sp: '楓香,特別' }];
+  const byNo = new Map([
+    ['10', { no: '10', height: 12.5, girth: 80, at: '2026-09-19T16:30:00.000Z', n: 3 }],
+    ['3', { no: '3', height: 2.34, girth: null, at: '2026-09-01T02:00:00.000Z', n: 1 }],
+  ]);
+  it('第一列標題;預設只含有量測的樹,依樹號數字排序,數字保持數字', () => {
+    const rows = buildTreeRows(trees, byNo);
+    expect(rows[0]).toEqual(['官方樹號', '樹種', '最新樹高(m)', '樹圍(cm)', '量測時間(台灣)', '量測筆數']);
+    expect(rows[1]).toEqual(['3', '楓香,特別', 2.34, null, '2026-09-01 10:00', 1]);
+    expect(rows[2]).toEqual(['10', '榕樹', 12.5, 80, '2026-09-20 00:30', 3]);
+    expect(rows).toHaveLength(3);
+  });
+  it('onlyMeasured:false 時含未量測的樹,後四欄為 null;不修改輸入', () => {
+    const copy = JSON.parse(JSON.stringify(trees));
+    const rows = buildTreeRows(trees, byNo, { onlyMeasured: false });
+    expect(rows[1]).toEqual(['2', '樟樹', null, null, null, null]);
+    expect(rows).toHaveLength(4);
+    expect(trees).toEqual(copy);
+  });
+});
+
+describe('buildTreeXlsx', () => {
+  it('產出 zip(PK 開頭),且樹號寫成數字儲存格', () => {
+    const bytes = buildTreeXlsx([{ no: '43667', sp: '肯氏蒲桃' }], new Map([['43667', { no: '43667', height: 2.34, girth: 35, at: '2026-09-19T16:15:00.000Z', n: 3 }]]));
+    expect(bytes[0]).toBe(0x50);
+    expect(bytes[1]).toBe(0x4b);
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain('<c r="A2"><v>43667</v></c>');
+    expect(text).toContain('<c r="C2"><v>2.34</v></c>');
+  });
+});
