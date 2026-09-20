@@ -49,10 +49,18 @@ describe('trees.html 學生選樹頁(原始碼層級檢查)', () => {
   });
   it('清單顯示後先 invalidateSize 再 setView', () => {
     const a = html.indexOf('showNearby(pos);');
-    const b = html.indexOf('map.invalidateSize()');
+    const b = html.indexOf('map.invalidateSize()', a);
     const c = html.indexOf('map.setView([pos.y, pos.x], 19)');
     expect(a).toBeGreaterThan(-1);
     expect(b).toBeGreaterThan(a);
     expect(c).toBeGreaterThan(b);
+  });
+  it('地圖容器尺寸變動時重算(ResizeObserver + invalidateSize)', () => {
+    expect(html).toMatch(/ResizeObserver/);
+    expect(html).toMatch(/invalidateSize/);
+  });
+  it('showNearby 在沒有樹資料時提早返回,不顯示最近樹區塊', () => {
+    const body = html.slice(html.indexOf('function showNearby'));
+    expect(body).toMatch(/if\s*\(\s*trees\.length\s*===\s*0\s*\)\s*return/);
   });
 });
