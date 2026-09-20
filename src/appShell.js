@@ -1,5 +1,8 @@
 // 殼層(app.html)的路由與分頁設定。純函式,不碰 DOM,方便測試。
-export const STUDENT_TABS = [{ id: 'measure', label: '量測', page: 'tree.html' }];
+export const STUDENT_TABS = [
+  { id: 'trees', label: '樹木', page: 'trees.html' },
+  { id: 'measure', label: '量測', page: 'tree.html' },
+];
 export const TEACHER_TABS = [
   { id: 'roster', label: '名單', page: 'roster.html' },
   { id: 'map', label: '地圖', page: 'map.html' },

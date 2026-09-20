@@ -88,7 +88,7 @@ git push -u origin master
 - 學生「姓名」由後端依名簿決定,學生不能自己輸入,無法冒名。
 - **設定只有一處**:`src/config.js` 的 `API_URL`、`GOOGLE_CLIENT_ID`(學生頁與所有教師頁都從這裡讀;`tests/duplication-sync.test.js` 會檢查沒有頁面自己寫死,且與 `Code.gs` 的用戶端 ID 一致)。
 - 教師登入狀態存在瀏覽器的 sessionStorage(關掉分頁就沒了);每次開教師頁都會向後端重新確認身分。
-- 離線快取版本 `tree-map-v13`。Service Worker 安裝時以 `cache: 'reload'` 繞過 HTTP 快取,避免新舊檔案混用。
+- 離線快取版本 `tree-map-v14`。Service Worker 安裝時以 `cache: 'reload'` 繞過 HTTP 快取,避免新舊檔案混用。
 
 ### 學生操作流程
 1. 老師在「學生名單與通行碼」貼上名單 → 匯入 → 列印紙條(通行碼只顯示一次)。
@@ -104,6 +104,8 @@ git push -u origin master
 - iPhone/iPad Safari:分享 → 加入主畫面
 - 已安裝舊版(起點 `tree.html`)的使用者需**重新安裝**才會用到新殼層(manifest 的 `id` 改成 `./app.html`)
 - 離線:老師分頁需連網;學生量測頁可離線
+- 學生可在「樹木」分頁選樹(地圖點選或最近 5 棵);定位只在本機使用,不儲存、不上傳
+- 選樹地圖的圖磚需要網路,離線時只能開啟頁面
 - 已知小限制:
   - 殼層內按硬體返回鍵會直接離開 App
   - 地圖「開啟量測頁」會另開瀏覽器分頁

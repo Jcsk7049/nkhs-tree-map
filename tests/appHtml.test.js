@@ -35,3 +35,11 @@ describe('app.html 離線提示', () => {
     expect(html).toMatch(/addEventListener\('offline'/);
   });
 });
+
+describe('app.html 量測 placeholder', () => {
+  it('量測分頁沒選樹時,placeholder 引導到「樹木」分頁並有按鈕', () => {
+    expect(html).toContain('請先到「樹木」分頁選一棵樹');
+    expect(html).toMatch(/id="go-trees"/);
+    expect(html).not.toContain('之後版本會加入直接選樹');
+  });
+});
