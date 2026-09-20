@@ -89,7 +89,7 @@ export function requireTeacher({ apiUrl, clientId }) {
     }
 
     async function startSignIn() {
-      if (!statusEl.textContent || statusEl.textContent === LOADING_TEXT) statusEl.textContent = '請用教師的 Google 帳號登入。';
+      if (!statusEl.textContent.trim() || statusEl.textContent.trim() === LOADING_TEXT) statusEl.textContent = '請用教師的 Google 帳號登入。';
       try {
         await waitForGoogle();
         window.google.accounts.id.initialize({
