@@ -53,7 +53,8 @@
 - **2026-09-20 使用者在自己的 Chrome 實測通過(app.html 殼層)**:選「我是老師」→ 名單分頁內 Google 登入成功 → 名單載入 3 位學生;切「地圖」(861 棵、已量測 3)與「QR 標籤」皆正常顯示,各分頁只有一個 iframe、返回連結已隱藏。Service Worker 啟用、快取為 `tree-map-v13`。
 - **未驗證(安裝版 App)**:真機安裝(Android/iOS 加入主畫面)、安裝後離線開啟殼層與學生量測頁、殼層內的學生模式(`#/student/measure?treeId=…`)。
 - **2026-09-20 階段 3 部分實測**:使用者已更新後端;管理頁「教師帳號」區成功載入(顯示自己的信箱與「(你)」),代表 `teacher-list` 在真實 Apps Script 上可用;用假憑證打 `teacher-list/add/remove`、`roster-unlock` 皆回 `AUTH_REJECTED`(新動作存在且需身分),`?action=summary` 與舊動作不受影響。(註:某次首發請求曾回「不認得的請求」,重打 3 次皆正常,判斷為 Apps Script 冷啟動的單次現象。)
-- **未驗證(階段 3)**:`teacher-add/remove`、`roster-unlock`(連錯 10 次鎖定 → 名單頁 🔒 → 解除)的真實操作;匯出的 .xlsx 用 Excel 開啟(自寫 zip/xml,僅以 Python zipfile+minidom 驗證結構);4 個分頁+「換身分」在 375px 手機是否過擠。
+- **2026-09-20 使用者在真正的 Excel 實測通過(.xlsx 匯出)**:欄位分成 A~F 六欄、樹號/樹高/樹圍/筆數為數字(靠右對齊)、時間為文字、中文正常、無修復提示(僅有 Windows 對下載檔的「受保護的檢視」橫幅,屬正常)。CSV 版原本在其電腦擠在 A 欄,已改以 .xlsx 為主。
+- **未驗證(階段 3)**:`teacher-add/remove`、`roster-unlock`(連錯 10 次鎖定 → 名單頁 🔒 → 解除)的真實操作;4 個分頁+「換身分」在 375px 手機是否過擠。
 - 已知取捨(已寫進 README):任何人可故意輸錯把某學生鎖 5 分鐘(老師重設可解);離線暫存的通行碼會留在該平板 IndexedDB 直到同步成功。
 
 ## 交接給學校前必做
