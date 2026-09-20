@@ -22,6 +22,7 @@
     #frames { flex: 1; position: relative; min-height: 0; }
     #frames iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
     #offline { background: #fff3e0; border-bottom: 1px solid #ef6c00; color: #a34700; padding: 8px 12px; font-size: 14px; }
+    #go-trees { padding: 10px 16px; font-size: 16px; background: #2e7d32; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
     #placeholder { padding: 32px 16px; color: #555; line-height: 1.7; }
     #tabbar { display: flex; border-top: 1px solid #ccc; background: #f7f7f7; padding-bottom: env(safe-area-inset-bottom); }
     #tabbar button { flex: 1; padding: 12px 4px; border: 0; background: none; font: inherit; font-size: 15px; color: #555; cursor: pointer; }
@@ -49,7 +50,10 @@
 
   <div id="offline" hidden>老師功能需要連網,請連上網路後再使用。</div>
   <div id="frames" hidden>
-    <div id="placeholder" hidden>請掃樹上貼的 QRCode 開始量測。(之後版本會加入直接選樹。)</div>
+    <div id="placeholder" hidden>
+      請先到「樹木」分頁選一棵樹,或直接掃樹上的 QRCode。
+      <p><button type="button" id="go-trees">去選樹</button></p>
+    </div>
   </div>
   <nav id="tabbar" hidden></nav>
 
@@ -130,6 +134,9 @@
     window.addEventListener('hashchange', route);
     window.addEventListener('online', updateOffline);
     window.addEventListener('offline', updateOffline);
+    document.getElementById('go-trees').addEventListener('click', () => {
+      window.location.hash = buildHash('student', 'trees');
+    });
     route();
 
     if ('serviceWorker' in navigator) {

@@ -7,8 +7,8 @@ describe('tabsFor', () => {
     expect(TEACHER_TABS.map((t) => t.id)).toEqual(['roster', 'map', 'labels']);
     expect(tabsFor('teacher')).toBe(TEACHER_TABS);
   });
-  it('學生階段 1 只有量測', () => {
-    expect(STUDENT_TABS.map((t) => t.id)).toEqual(['measure']);
+  it('學生兩個分頁:樹木/量測', () => {
+    expect(STUDENT_TABS.map((t) => t.id)).toEqual(['trees', 'measure']);
     expect(tabsFor('student')).toBe(STUDENT_TABS);
   });
   it('未知身分回空陣列', () => {
@@ -27,7 +27,7 @@ describe('parseHash', () => {
   });
   it('只有身分 → 取該身分第一個分頁', () => {
     expect(parseHash('#/teacher')).toEqual({ role: 'teacher', tab: 'roster', treeId: '' });
-    expect(parseHash('#/student')).toEqual({ role: 'student', tab: 'measure', treeId: '' });
+    expect(parseHash('#/student')).toEqual({ role: 'student', tab: 'trees', treeId: '' });
   });
   it('學生量測帶樹號(含需解碼的字元)', () => {
     expect(parseHash('#/student/measure?treeId=A%2D023').treeId).toBe('A-023');
@@ -39,6 +39,9 @@ describe('parseHash', () => {
 });
 
 describe('frameSrc / buildHash', () => {
+  it('學生樹木分頁對應 trees.html', () => {
+    expect(frameSrc('student', 'trees')).toBe('./trees.html?embed=1');
+  });
   it('老師分頁對應既有頁面並加 embed=1', () => {
     expect(frameSrc('teacher', 'roster')).toBe('./roster.html?embed=1');
     expect(frameSrc('teacher', 'map')).toBe('./map.html?embed=1');

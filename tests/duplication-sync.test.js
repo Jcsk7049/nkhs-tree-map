@@ -11,7 +11,7 @@
  * 同時檢查 `public/tree.html` 實際 import 的每個 `../src/*.js` 都在快取清單內。
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { CACHE_FILES } from '../src/swCacheList.js';
@@ -68,6 +68,25 @@ describe('app.html 的模組相依與安裝資產都必須在離線快取清單�
   it('殼層頁與安裝圖示在清單內', () => {
     for (const file of ['./app.html', './icon-512.png', './icon-180.png']) {
       expect(CACHE_FILES).toContain(file);
+    }
+  });
+});
+
+describe('trees.html 與快取清單', () => {
+  it('trees.html 每個 ../src/*.js import 都在 CACHE_FILES 內', () => {
+    const imports = extractModuleImports(readRepoFile('public/trees.html'));
+    expect(imports.length).toBeGreaterThan(0);
+    for (const importPath of imports) expect(CACHE_FILES).toContain(importPath);
+  });
+  it('選樹頁與其資源在清單內', () => {
+    for (const file of ['./trees.html', '../src/nearby.js', '../src/heightColors.js', '../data/nkhs-trees.json',
+      './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css']) {
+      expect(CACHE_FILES).toContain(file);
+    }
+  });
+  it('CACHE_FILES 每一項都是真實存在的檔案(cache.addAll 只要有一個 404 整批失敗)', () => {
+    for (const file of CACHE_FILES) {
+      expect(existsSync(new URL(file, new URL('../public/sw.js', import.meta.url))), file).toBe(true);
     }
   });
 });
