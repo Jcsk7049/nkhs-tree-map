@@ -122,12 +122,19 @@
       if (src && !frames.has(activeKey)) {
         const frame = document.createElement('iframe');
         frame.src = src;
+        frame.allow = 'camera; geolocation';
         const tabObj = tabsFor(role).find(t => t.id === tab);
         frame.title = tabObj ? tabObj.label : tab;
         framesEl.appendChild(frame);
         frames.set(activeKey, frame);
       }
-      for (const [key, frame] of frames) frame.hidden = key !== activeKey;
+      for (const [key, frame] of frames) {
+        const visible = key === activeKey;
+        frame.hidden = !visible;
+        try {
+          frame.contentWindow.postMessage({ type: 'tab-visibility', visible }, window.location.origin);
+        } catch (err) { /* iframe 尚未載入完成時忽略 */ }
+      }
     }
 
     home.addEventListener('click', (event) => {

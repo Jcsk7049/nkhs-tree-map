@@ -7,8 +7,8 @@ describe('tabsFor', () => {
     expect(TEACHER_TABS.map((t) => t.id)).toEqual(['roster', 'map', 'labels', 'admin']);
     expect(tabsFor('teacher')).toBe(TEACHER_TABS);
   });
-  it('學生兩個分頁:樹木/量測', () => {
-    expect(STUDENT_TABS.map((t) => t.id)).toEqual(['trees', 'measure']);
+  it('學生三個分頁:樹木/掃描/量測', () => {
+    expect(STUDENT_TABS.map((t) => t.id)).toEqual(['trees', 'scan', 'measure']);
     expect(tabsFor('student')).toBe(STUDENT_TABS);
   });
   it('未知身分回空陣列', () => {
@@ -41,6 +41,9 @@ describe('parseHash', () => {
 describe('frameSrc / buildHash', () => {
   it('學生樹木分頁對應 trees.html', () => {
     expect(frameSrc('student', 'trees')).toBe('./trees.html?embed=1');
+  });
+  it('學生掃描分頁對應 scan.html', () => {
+    expect(frameSrc('student', 'scan')).toBe('./scan.html?embed=1');
   });
   it('老師分頁對應既有頁面並加 embed=1', () => {
     expect(frameSrc('teacher', 'roster')).toBe('./roster.html?embed=1');

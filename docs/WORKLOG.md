@@ -27,6 +27,7 @@
 | `public/index.html` | 全部 | 兩端入口說明 |
 | `public/trees.html` | 學生 | 選樹:地圖標色(已量測/未量測)、我的位置、最近 5 棵;定位只在本機使用 |
 | `public/admin.html` | 老師 | 管理:匯出量測 .xlsx(主)/CSV(次)(可只匯出已量測)、教師帳號新增/移除 |
+| `public/scan.html` | 學生 | 相機掃樹牌 QR → 確認樹號樹種 → 進量測;離線可用(內建 jsQR,不上傳影像) |
 | `public/app.html` | 全部 | 統一入口(PWA 起點):選身分 + 底部導覽,以 iframe 承載既有頁面(內嵌模式 `embed=1`) |
 
 ## 架構重點
@@ -36,7 +37,7 @@
 - **設定單一來源**:`src/config.js`(`API_URL`、`GOOGLE_CLIENT_ID`);測試會檢查沒有頁面自己寫死、且與 `Code.gs` 一致。
 - **官方資料**:`data/nkhs-trees.json` 是官方平台快照(861 棵),更新用 `node scripts/fetch-official-trees.mjs`(官方 API 無 CORS,不能即時抓)。
 - 純函式在 `src/`,`Code.gs` 用 vm 載入真檔配假 Sheet 測(`tests/codeGs.test.js`)。
-- 離線:Service Worker(`public/sw.js`,目前 `tree-map-v17`,安裝時 `cache:'reload'`);`swCacheList.js` 與 `sw.js` 的清單必須一致(有測試守)。
+- 離線:Service Worker(`public/sw.js`,目前 `tree-map-v18`,安裝時 `cache:'reload'`);`swCacheList.js` 與 `sw.js` 的清單必須一致(有測試守)。
 
 ## 使用者需要做的(未完成)
 1. Sheet 加分頁 **`教師名單`**(A1 標題「教師 Google 信箱」,A2 填登入用 Gmail)。後端只有收到有效 Google 登入才會自動建,所以尚未出現是正常的。
@@ -77,6 +78,7 @@
 - Excel 匯出(回填官方平台用):**已完成**(`admin.html`,快取升 v15)。
   - 2026-09-20 改版:主為 .xlsx(自寫 `src/xlsx.js`,無外部函式庫,欄位一定分開、數字為數字),CSV 降為次要。
   - 原因:使用者用 Excel 開 CSV 整列擠在 A 欄(Excel 依 Windows 清單分隔符號拆欄)。
+- 掃描分頁待真機驗證:iPhone 獨立 App 的相機權限與辨識速度、Android。
 - 平板真機測試;手機掃 QR 驗證。
 - 教師端:解除單一學生鎖定的按鈕:**已完成**(名單頁);教師名單管理介面:**已完成**(`admin.html`)。
 - 通行碼加長到 8 碼(紅隊建議,拿到 Sheet+pepper 時離線破解成本較低)。

@@ -84,7 +84,7 @@ describe('④老師閘門不再閃現空白卡片', () => {
 });
 
 describe('快取版本', () => {
-  it('sw.js 為 v17,且 CACHE_FILES 未變動內容以外的結構', () => {
-    expect(read('public/sw.js')).toMatch(/CACHE_NAME = 'tree-map-v17'/);
+  it('sw.js 為 v18,且 CACHE_FILES 未變動內容以外的結構', () => {
+    expect(read('public/sw.js')).toMatch(/CACHE_NAME = 'tree-map-v18'/);
   });
 });

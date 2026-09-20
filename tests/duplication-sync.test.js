@@ -91,6 +91,19 @@ describe('trees.html 與快取清單', () => {
   });
 });
 
+describe('scan.html 與快取清單', () => {
+  it('scan.html 每個 ../src/*.js import 都在 CACHE_FILES 內', () => {
+    const imports = extractModuleImports(readRepoFile('public/scan.html'));
+    expect(imports.length).toBeGreaterThan(0);
+    for (const importPath of imports) expect(CACHE_FILES).toContain(importPath);
+  });
+  it('掃描頁與其資源在清單內', () => {
+    for (const file of ['./scan.html', './vendor/jsqr/jsQR.js', '../src/qrScan.js']) {
+      expect(CACHE_FILES).toContain(file);
+    }
+  });
+});
+
 describe('後端網址與用戶端 ID 只在 src/config.js 一處設定', () => {
   const pages = ['tree.html', 'map.html', 'qrcodes.html', 'teacher.html', 'roster.html', 'admin.html'];
 
