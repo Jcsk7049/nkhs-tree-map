@@ -1,4 +1,7 @@
 // 匯出「每棵樹最新量測」CSV(給 Excel 開、回填官方平台)。純函式,不碰 DOM。只用公開摘要欄位,不含任何學生個資。
+import { buildXlsx, xlsxFilename } from './xlsx.js';
+export { xlsxFilename };
+
 const TAIWAN_OFFSET_MS = 8 * 3600 * 1000;
 const HEADER = ['官方樹號', '樹種', '最新樹高(m)', '樹圍(cm)', '量測時間(台灣)', '量測筆數'];
 
@@ -17,7 +20,7 @@ export function formatTaiwanTime(iso) {
   return new Date(ms + TAIWAN_OFFSET_MS).toISOString().slice(0, 16).replace('T', ' ');
 }
 
-export function buildTreeCsv(trees, byNo, { onlyMeasured = true } = {}) {
+export function buildTreeRows(trees, byNo, { onlyMeasured = true } = {}) {
   const rows = [...trees]
     .filter((t) => !onlyMeasured || byNo.has(t.no))
     .sort((a, b) => Number(a.no) - Number(b.no))
@@ -25,10 +28,23 @@ export function buildTreeCsv(trees, byNo, { onlyMeasured = true } = {}) {
       const m = byNo.get(t.no);
       return m
         ? [t.no, t.sp, m.height, m.girth, formatTaiwanTime(m.at), m.n]
-        : [t.no, t.sp, '', '', '', ''];
+        : [t.no, t.sp, null, null, null, null];
     });
-  const lines = [HEADER, ...rows].map((cells) => cells.map(csvEscape).join(','));
-  return `﻿${lines.join('\r\n')}\r\n`;
+  return [HEADER, ...rows];
+}
+
+export function buildTreeCsv(trees, byNo, opts) {
+  const lines = buildTreeRows(trees, byNo, opts).map((cells) => cells.map(csvEscape).join(','));
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
+}
+
+export function buildTreeXlsx(trees, byNo, opts) {
+  const rows = buildTreeRows(trees, byNo, opts).map((cells, i) => {
+    // 樹號純數字時寫成數字儲存格(標題列除外);其餘維持字串。
+    if (i === 0) return cells;
+    return /^[1-9]\d{0,14}$/.test(String(cells[0])) ? [Number(cells[0]), ...cells.slice(1)] : cells;
+  });
+  return buildXlsx(rows, { columnWidths: [12, 16, 14, 12, 20, 10] });
 }
 
 export function csvFilename(nowMs) {

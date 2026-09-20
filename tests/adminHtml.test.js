@@ -20,6 +20,15 @@ describe('admin.html 管理頁(原始碼層級檢查)', () => {
     expect(html).toMatch(/id="only-measured"[^>]*checked/);
     expect(html).not.toMatch(/roster-list/); // 匯出不得碰含個資的名單
   });
+  it('主按鈕下載 .xlsx,次要按鈕下載 CSV,兩者共用同一份資料', () => {
+    expect(html).toMatch(/id="export-xlsx"/);
+    expect(html).toMatch(/id="export-csv"/);
+    expect(html).toMatch(/buildTreeXlsx\(/);
+    expect(html).toMatch(/buildTreeCsv\(/);
+    expect(html).toMatch(/xlsxFilename\(/);
+    expect(html).toMatch(/csvFilename\(/);
+    expect(html).toContain('下載 Excel');
+  });
   it('教師帳號:列表、新增、移除,且自己那列不提供移除', () => {
     for (const a of ['teacher-list', 'teacher-add', 'teacher-remove']) {
       expect(html).toContain(`'${a}'`);
