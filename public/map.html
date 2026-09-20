@@ -249,6 +249,7 @@
     }
 
     const map = L.map('map', { preferCanvas: true, maxZoom: 21, zoomSnap: 0.5 });
+    map.attributionControl.setPrefix(false); // 移除指向 leafletjs.com 的外站連結:手機上誤點會離開 App 且無法返回
     const NLSC = 'https://wmts.nlsc.gov.tw/wmts';
     const attribution = '© 內政部國土測繪中心';
     const aerial = L.tileLayer(`${NLSC}/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}`, { maxNativeZoom: 19, maxZoom: 21, attribution });

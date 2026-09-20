@@ -36,7 +36,7 @@
 - **設定單一來源**:`src/config.js`(`API_URL`、`GOOGLE_CLIENT_ID`);測試會檢查沒有頁面自己寫死、且與 `Code.gs` 一致。
 - **官方資料**:`data/nkhs-trees.json` 是官方平台快照(861 棵),更新用 `node scripts/fetch-official-trees.mjs`(官方 API 無 CORS,不能即時抓)。
 - 純函式在 `src/`,`Code.gs` 用 vm 載入真檔配假 Sheet 測(`tests/codeGs.test.js`)。
-- 離線:Service Worker(`public/sw.js`,目前 `tree-map-v16`,安裝時 `cache:'reload'`);`swCacheList.js` 與 `sw.js` 的清單必須一致(有測試守)。
+- 離線:Service Worker(`public/sw.js`,目前 `tree-map-v17`,安裝時 `cache:'reload'`);`swCacheList.js` 與 `sw.js` 的清單必須一致(有測試守)。
 
 ## 使用者需要做的(未完成)
 1. Sheet 加分頁 **`教師名單`**(A1 標題「教師 Google 信箱」,A2 填登入用 Gmail)。後端只有收到有效 Google 登入才會自動建,所以尚未出現是正常的。

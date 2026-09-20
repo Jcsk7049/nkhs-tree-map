@@ -85,6 +85,7 @@
     }
 
     const map = L.map('map', { preferCanvas: true, maxZoom: 21, zoomSnap: 0.5 });
+    map.attributionControl.setPrefix(false); // 移除指向 leafletjs.com 的外站連結:手機上誤點會離開 App 且無法返回
     if (typeof ResizeObserver !== 'undefined') {
       new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
     }
