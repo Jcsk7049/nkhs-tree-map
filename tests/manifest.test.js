@@ -23,6 +23,9 @@ describe('manifest.json', () => {
       expect(`${w}x${h}`).toBe(icon.sizes);
     }
   });
+  it('圖示 purpose 為 any maskable', () => {
+    for (const icon of manifest.icons) expect(icon.purpose).toBe('any maskable');
+  });
   it('iOS 用的 180px 圖示存在且尺寸正確', () => {
     expect(pngSize(read('icon-180.png'))).toEqual([180, 180]);
   });

@@ -25,6 +25,22 @@
     #message.ok { color: #2e7d32; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e0e0e0; }
+    #roster-body td:nth-child(2), #roster-body td:nth-child(3), #roster-body td:nth-child(4) { white-space: nowrap; }
+    .check-all-text { display: none; }
+    @media (max-width: 600px) {
+      /* 手機:每位學生一張卡片。第一行 勾選框+座號+姓名+狀態,第二行 操作按鈕 */
+      table, tbody { display: block; width: 100%; }
+      thead { display: block; }
+      thead tr { display: flex; align-items: center; border-bottom: 1px solid #e0e0e0; }
+      thead th { display: none; border: 0; }
+      thead th:first-child { display: flex; align-items: center; gap: 6px; padding: 6px; }
+      .check-all-text { display: inline; margin-left: 4px; font-weight: normal; }
+      #roster-body tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 6px; border-bottom: 1px solid #ccc; }
+      #roster-body td { border: 0; padding: 0; }
+      #roster-body td:last-child { flex: 0 0 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+      #roster-body td[colspan] { flex: 0 0 100%; white-space: normal; }
+      #roster-body button.small { min-height: 32px; margin: 0; padding: 4px 10px; }
+    }
     .st-on { color: #2e7d32; font-weight: bold; }
     .st-off { color: #c62828; font-weight: bold; }
     .warn { background: #fff3e0; border: 1px solid #ef6c00; color: #a34700; padding: 8px 12px; border-radius: 4px; font-size: 14px; }
@@ -47,7 +63,7 @@
 <body>
   <div id="gate">
     <h1>教師登入</h1>
-    <p id="gate-status"></p>
+    <p id="gate-status">載入中…</p>
     <div id="gate-button" style="display:flex; justify-content:center"></div>
     <p style="color:#888; font-size:13px">此頁僅供老師使用。學生請掃樹上的 QRCode。</p>
   </div>
@@ -72,7 +88,7 @@
       <button type="button" id="reset-selected" disabled>重設勾選者的通行碼</button>
       <span id="selected-count" class="hint"></span>
       <table>
-        <thead><tr><th><input type="checkbox" id="check-all" aria-label="全選" /></th><th>班級座號</th><th>姓名</th><th>狀態</th><th>操作</th></tr></thead>
+        <thead><tr><th><label class="check-all-label"><input type="checkbox" id="check-all" aria-label="全選" /><span class="check-all-text">全選</span></label></th><th>班級座號</th><th>姓名</th><th>狀態</th><th>操作</th></tr></thead>
         <tbody id="roster-body"></tbody>
       </table>
     </section>
