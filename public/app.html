@@ -23,6 +23,8 @@
     #frames iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
     #offline { background: #fff3e0; border-bottom: 1px solid #ef6c00; color: #a34700; padding: 8px 12px; font-size: 14px; }
     #go-trees { padding: 10px 16px; font-size: 16px; background: #2e7d32; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+    #update-banner { background: #e8f5e9; border-bottom: 1px solid #2e7d32; color: #1b5e20; padding: 6px 12px; font-size: 14px; }
+    #update-banner button { margin-left: 8px; padding: 3px 10px; font-size: 14px; }
     #placeholder { padding: 32px 16px; color: #555; line-height: 1.7; }
     #tabbar { display: flex; border-top: 1px solid #ccc; background: #f7f7f7; padding-bottom: env(safe-area-inset-bottom); }
     #tabbar button { flex: 1; padding: 12px 4px; border: 0; background: none; font: inherit; font-size: 15px; color: #555; cursor: pointer; }
@@ -31,6 +33,7 @@
   </style>
 </head>
 <body>
+  <div id="update-banner" hidden>有新版本可用。 <button type="button" id="update-reload">立即更新</button></div>
   <section id="home">
     <main>
       <h1>南港高工 校園樹木量測</h1>
@@ -140,6 +143,12 @@
     route();
 
     if ('serviceWorker' in navigator) {
+      // 只有「原本就有 Service Worker 控制頁面」才代表這是版本更新(第一次安裝也會觸發 controllerchange,那不用提示)。
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController) document.getElementById('update-banner').hidden = false;
+      });
+      document.getElementById('update-reload').addEventListener('click', () => window.location.reload());
       navigator.serviceWorker.register('./sw.js').catch((err) => console.error('[tree-map] SW 註冊失敗', err));
     }
   </script>

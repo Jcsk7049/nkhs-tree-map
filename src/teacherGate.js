@@ -2,6 +2,7 @@ import { callTeacherApi, TeacherApiError } from './teacherApi.js';
 import { decideRestore } from './session.js';
 
 const TOKEN_KEY = 'tree-map-teacher-token';
+const LOADING_TEXT = '載入中…';
 const AUTH_ERRORS = ['AUTH_EXPIRED', 'AUTH_REJECTED'];
 
 function waitForGoogle(timeoutMs = 10000) {
@@ -88,7 +89,7 @@ export function requireTeacher({ apiUrl, clientId }) {
     }
 
     async function startSignIn() {
-      statusEl.textContent = statusEl.textContent || '請用教師的 Google 帳號登入。';
+      if (!statusEl.textContent || statusEl.textContent === LOADING_TEXT) statusEl.textContent = '請用教師的 Google 帳號登入。';
       try {
         await waitForGoogle();
         window.google.accounts.id.initialize({
