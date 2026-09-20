@@ -61,7 +61,7 @@
     import { requireTeacher } from '../src/teacherGate.js';
     import { applyEmbedMode } from '../src/embed.js';
     import { matchSummary } from '../src/heightColors.js';
-    import { buildTreeCsv, csvFilename } from '../src/exportCsv.js';
+    import { buildTreeCsv, csvFilename, formatTaiwanTime } from '../src/exportCsv.js';
 
     applyEmbedMode(document, window.location.search);
     const me = await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
@@ -106,7 +106,7 @@
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-        say(exportMsg, `已下載 ${link.download}(${onlyMeasured ? measured : trees.length} 列)。資料更新時間 ${String(body.generatedAt).slice(0, 19).replace('T', ' ')} UTC`, 'ok');
+        say(exportMsg, `已下載 ${link.download}(${onlyMeasured ? measured : trees.length} 列)。資料更新時間 ${formatTaiwanTime(body.generatedAt) || '未知'}(台灣時間)`, 'ok');
       } catch (err) {
         say(exportMsg, `匯出失敗:${err.message}`, 'error');
       } finally {

@@ -807,10 +807,12 @@ describe('老師動作:教師信箱管理', () => {
     expect(teacherCall(env, 'teacher-add', { email: 'one-more@school.tw' }).code).toBe('VALIDATION_FAILED');
   });
 
-  it('teacher-add:以 = 開頭的信箱寫入時被 sanitize 成純文字', () => {
+  it('teacher-add:以 = + - @ 開頭的信箱被拒絕,不會寫進 Sheet', () => {
     const env = withTeacher();
-    expect(teacherCall(env, 'teacher-add', { email: '=cmd@x.tw' }).status).toBe('ok'); // 合法信箱字元,寫入時被 sanitize
-    expect(env.sheets['教師名單'].rows[2][0]).toBe("'=cmd@x.tw");
+    for (const bad of ['=cmd@x.tw', '+a@x.tw', '-a@x.tw', '@a@x.tw']) {
+      expect(teacherCall(env, 'teacher-add', { email: bad }).code, bad).toBe('VALIDATION_FAILED');
+    }
+    expect(env.sheets['教師名單'].rows).toHaveLength(2);
   });
 
   it('teacher-remove:可移除其他老師,被移除者立刻不能登入', () => {

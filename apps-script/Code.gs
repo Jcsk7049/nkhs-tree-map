@@ -724,7 +724,7 @@ function teacherList() {
 
 function teacherAdd(emailRaw) {
   var email = normalizeEmail(emailRaw);
-  if (email.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(email)) {
+  if (email.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(email) || /^[=+\-@]/.test(email)) {
     return errorOutput('VALIDATION_FAILED', '信箱格式不正確');
   }
   var lock = LockService.getScriptLock();

@@ -27,6 +27,10 @@ describe('admin.html 管理頁(原始碼層級檢查)', () => {
     expect(html).toMatch(/window\.confirm\(/);
     expect(html).toMatch(/me\.email|teacher\.email/);
   });
+  it('資料更新時間以台灣時間顯示,不再出現 UTC', () => {
+    expect(html).toMatch(/formatTaiwanTime\(/);
+    expect(html).not.toContain('UTC');
+  });
   it('後端尚未更新時有明確提示', () => {
     expect(html).toContain('重新部署');
   });
