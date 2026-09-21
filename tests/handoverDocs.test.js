@@ -61,3 +61,41 @@ describe('入口文件與 CI', () => {
     for (const s of ['npm ci', 'npm test', 'pull_request', 'actions/checkout']) expect(y).toContain(s);
   });
 });
+
+describe('docs/HANDOVER.md 第 4 節環境安裝指引', () => {
+  for (const h of ['### 4.1', '### 4.2', '### 4.3']) {
+    it(`有 ${h} 標題`, () => {
+      expect(doc.split('\n').some((l) => l.startsWith(h))).toBe(true);
+    });
+  }
+  for (const s of ['Node.js', 'Live Server', 'Vitest', 'Prettier', 'F12', 'npm install', 'git clone']) {
+    it(`提到 ${s}`, () => {
+      expect(doc).toContain(s);
+    });
+  }
+});
+
+describe('CLAUDE.md / AGENTS.md(給 AI 工具的專案規則)', () => {
+  it('兩份都存在且逐位元組相同', () => {
+    expect(existsSync(resolve(root, 'CLAUDE.md'))).toBe(true);
+    expect(existsSync(resolve(root, 'AGENTS.md'))).toBe(true);
+    expect(readFileSync(resolve(root, 'CLAUDE.md')).equals(readFileSync(resolve(root, 'AGENTS.md')))).toBe(true);
+  });
+  for (const s of ['npm test', 'CACHE_NAME', 'swCacheList', 'public/vendor', 'Code.gs', 'GOOGLE_CLIENT_ID', 'docs/HANDOVER.md']) {
+    it(`提到 ${s}`, () => {
+      expect(existsSync(resolve(root, 'CLAUDE.md')) && read('CLAUDE.md')).toContain(s);
+    });
+  }
+  it('反引號內的檔案路徑都真的存在', () => {
+    const paths = [...read('CLAUDE.md').matchAll(/`([^`\s]+)`/g)]
+      .map((m) => m[1])
+      .filter((p) => p.includes('/') && /\.[A-Za-z0-9]+$/.test(p) && !p.includes('*') && !/^https?:/.test(p));
+    expect(paths.length).toBeGreaterThan(0);
+    for (const p of paths) expect(existsSync(resolve(root, p)), p).toBe(true);
+  });
+  it('README.md 提到 CLAUDE.md 與 AGENTS.md', () => {
+    const r = read('README.md');
+    expect(r).toContain('CLAUDE.md');
+    expect(r).toContain('AGENTS.md');
+  });
+});

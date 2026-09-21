@@ -101,6 +101,69 @@
 npx.cmd vitest run
 ```
 
+### 4.1 環境安裝(依程度分三層)
+
+| 層級 | 你要做的事 | 要裝什麼 |
+|---|---|---|
+| 1 只管日常 | 看地圖、管名單、匯出資料 | 什麼都不用裝(瀏覽器即可) |
+| 2 小改文字/常數 | 直接在 GitHub 網頁編輯(方式 A) | 什麼都不用裝;需 GitHub 帳號 |
+| 3 認真改程式 | 本機修改、跑測試、推上 GitHub | VS Code、Git、Node.js LTS(用 22,與 CI 相同)、GitHub 帳號、Google 帳號 |
+
+- Node.js 版本依據:`.github/workflows/test.yml` 用 Node 22;Vitest 5 要求 `^22.12.0 || ^24.0.0 || >=26.0.0`(見 `node_modules/vitest/package.json` 的 engines)
+- AI 工具(Claude Code 或 Codex)為**選配、擇一即可**;費用與方案以官網為準,本文不列價格
+- 後端 Apps Script 直接在瀏覽器 script.google.com 編輯,不用安裝任何東西
+- **不需要**安裝:
+  - JavaScript(瀏覽器就是執行環境)
+  - Java / JDK
+  - Python
+  - 編譯器
+
+```bash
+git clone https://github.com/Jcsk7049/nkhs-tree-map.git
+cd nkhs-tree-map
+npm install
+npm test
+```
+
+- 成功的樣子:結尾出現 `Test Files ... passed`、`Tests ... passed`,沒有 failed;應看到全部通過(目前 419 個測試)
+- Windows PowerShell 出現「執行原則」錯誤:改用 `npm.cmd install`、`npm.cmd test`、`npx.cmd vitest run`(見 `docs/WORKLOG.md`)
+
+### 4.2 VS Code 擴充功能
+
+| 類別 | 擴充功能(發行者) | 用途 |
+|---|---|---|
+| 選配 | `Chinese (Traditional) Language Pack for Visual Studio Code`(Microsoft) | 介面繁體中文 |
+| 必裝/建議 | `Live Server`(Ritwick Dey) | 本機預覽網頁 |
+| 必裝/建議 | `Vitest`(Vitest 官方) | 在測試面板點選執行測試 |
+| 選配 | AI 工具擴充(Claude Code 或 Codex;認明發行者 Anthropic / OpenAI) | 用中文講需求請 AI 改 |
+| 選配 | `GitHub Pull Requests` | 在 VS Code 內看 PR |
+| **不要裝** | Prettier 或任何「儲存時自動格式化」 | 專案沒有格式設定,會讓整個檔案排版被改動 |
+| **不要裝** | Java 相關擴充 | 本專案不是 Java |
+
+- Live Server 用法:VS Code 開**專案根目錄** → 右鍵 `public/app.html` → Open with Live Server → 網址 `http://127.0.0.1:5500/public/app.html`
+- **警告 0(最重要)**:**不要用 Live Server 打開 `qrcodes.html` 來產生要印的 QR**。該頁的預設網址取自「目前網頁的網址」,在本機會變成 `http://127.0.0.1:5500/...`,印出來的樹牌全部無效。要印牌,一定要在**正式網站**的 QR 標籤頁(GitHub Pages 網址)產生,或在頁面裡手動填入正式網址
+- 警告 1:Live Server 只預覽前端,**後端不會在本機跑,送出資料仍會寫進真正的 Google Sheet**;練習請用測試學生,或先複製一份 Sheet
+- 警告 2:Service Worker 快取舊檔案、改了卻沒變時:F12 → Application → Service Workers → Unregister,並清除網站資料
+
+### 4.3 不用編譯器、也不用另外的除錯器
+
+| Java 習慣 | 本專案怎麼做 |
+|---|---|
+| 編譯器(javac) | **不需要**:JavaScript 直譯,存檔後重新整理即可;專案沒有 build 步驟 |
+| 除錯器 | 瀏覽器 F12 內建(見下) |
+| 型別檢查 | 沒有;改靠 `npm test`(自動測試) |
+| println | `console.log(...)`,在 F12 Console 看 |
+| 手機除錯 | iPhone Safari「開發」選單接線;Android 用 `chrome://inspect`;初學可先截圖給 AI/老師看 |
+| VS Code 除錯 JS | 可以,但初期不必設定 |
+| 後端(Apps Script) | script.google.com → 左邊「執行作業」或執行時下方的「執行記錄」看 `console.log` |
+
+| F12 分頁 | 看什麼 |
+|---|---|
+| Console | 例外訊息與 `console.log` 輸出 |
+| Sources | 下中斷點、逐行執行 |
+| Network | 前端與後端之間的資料往來 |
+| Application | Service Worker、快取、離線佇列(IndexedDB) |
+
 ## 5. 上線流程
 
 ### 前端(網頁)
