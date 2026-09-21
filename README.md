@@ -11,6 +11,7 @@
 | [DEPLOY.md](DEPLOY.md) | 前端部署與各功能說明 |
 | [apps-script/README.md](apps-script/README.md) | 後端部署、安全設計、驗證清單 |
 | [docs/WORKLOG.md](docs/WORKLOG.md) | 開發紀錄、踩過的坑 |
+| [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) | 給 AI 工具(Claude Code / Codex)的專案規則,兩份內容相同 |
 | [docs/TECH-OVERVIEW.md](docs/TECH-OVERVIEW.md) | 技術總覽與交接報告稿(架構、流程、口頭報告、Q&A) |
 
 ## 開發
