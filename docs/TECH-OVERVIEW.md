@@ -62,17 +62,17 @@
 | 技術 | 是什麼 | 用在哪 | 為什麼選它 | 替代方案 / 取捨 |
 |---|---|---|---|---|
 | HTML / CSS / JavaScript(ES modules,無建置) | 網頁三件套;`import`/`export` 讓每個檔案當一個模組 | `public/*.html`、`src/*.js` | 改檔案→推上 GitHub 就上線,沒有編譯步驟,接手者只要會改文字檔;語法像 Java | React/Vue 等框架:功能多但要 Node 建置環境,老師接手門檻高。取捨:頁面多了之後有些重複碼(各頁各有一段設定與樣式) |
-| PWA(manifest + Service Worker + 離線佇列 IndexedDB) | 讓網頁像 App:可裝到主畫面、可離線、可背景補送 | `public/manifest.json`、`public/sw.js`、`src/offlineQueue.js` | 校園樹旁常沒訊號;不必上架 App Store / Google Play | 原生 App:要開發者帳號、審核、維護兩套。取捨:iPhone 對 PWA 支援較保守,離線開啟與相機權限仍待實機驗證 |
+| PWA(manifest + Service Worker + 離線佇列 IndexedDB) | 讓網頁像 App:可裝到主畫面、可離線、可背景補送 | `public/manifest.json`、`public/sw.js`、`src/offlineQueue.js` | 校園樹旁常沒訊號;不必上架 App Store / Google Play | 原生 App:要開發者帳號、審核、維護兩套。取捨:iPhone 的 PWA 行為與 Android 有差異(待確認),離線開啟與相機權限仍待實機驗證 |
 | GitHub Pages | GitHub 提供的免費靜態網站託管 | 網站 `https://jcsk7049.github.io/nkhs-tree-map/public/app.html` | 免費、push 後約 1 分鐘自動發布、有版本紀錄可 Revert | 學校自己的主機/雲端:要人維護、要錢。取捨:目前掛在個人帳號下;網址含帳號名,轉移後網址會變(見第 8 節) |
 | Google Apps Script(後端) | Google 提供的雲端 JavaScript,可綁在試算表上當簡易 API | `apps-script/Code.gs`(部署成 Web App) | 免費、免主機、和 Sheet 天生整合、內建 SHA-256 與快取與鎖 | Node/Python 伺服器 + 資料庫:彈性大但要維護與費用。取捨:有每日用量限制、冷啟動較慢(第 8 節) |
 | Google Sheet(資料庫) | 雲端試算表 | 分頁「量測紀錄」「學生名單」「教師名單」 | 老師本來就會用、可直接開啟檢視/編輯/匯出、沒有資料庫要維護 | MySQL/Firebase 等:查詢強、能處理大量。取捨:不適合超大量資料、沒有真正的交易機制(靠程式加鎖) |
 | Google 登入(ID Token / OAuth 用戶端 ID) | 老師用 Google 帳號證明身分,瀏覽器拿到一張簽名的「身分證」(ID Token) | `src/teacherGate.js`、`Code.gs` 的 `verifyGoogleToken` | 不必自己做帳號密碼系統;老師名單只是 Sheet 裡的信箱 | 自建帳密:要處理密碼儲存與外洩。取捨:需要 Google Cloud 建 OAuth 用戶端 ID;換網域要重新授權來源 |
 | Leaflet + 國土測繪中心 WMTS 圖磚 | Leaflet:開源地圖函式庫;圖磚:官方地圖切成的小圖片 | `public/map.html`、`public/trees.html`、`public/vendor/leaflet/` | 免費、輕量;官方航照/電子地圖適合校園尺度 | Google Maps:要 API 金鑰與計費。取捨:圖磚必須有網路;偶有灰色方塊=官方該處沒圖 |
-| jsQR + getUserMedia(掃 QR) | getUserMedia:瀏覽器開相機的功能;jsQR:純 JS 把影像解成 QR 文字 | `public/scan.html`、`src/qrScan.js`、`src/cameraSession.js`、`public/vendor/jsqr/` | 影像只在手機上辨識、不上傳;放進專案內所以離線可用 | 瀏覽器內建 BarcodeDetector:iPhone 不一定支援(待確認)。取捨:jsQR 未壓縮約 257 KB;辨識速度依手機而異 |
+| jsQR + getUserMedia(掃 QR) | getUserMedia:瀏覽器開相機的功能;jsQR:純 JS 把影像解成 QR 文字 | `public/scan.html`、`src/qrScan.js`、`src/cameraSession.js`、`public/vendor/jsqr/` | 影像只在手機上辨識、不上傳;放進專案內所以離線可用 | 瀏覽器內建 BarcodeDetector:iPhone 不一定支援(待確認)。取捨:jsQR 未壓縮約 約 267 KB;辨識速度依手機而異 |
 | qrcode-generator(產生 QR) | 開源的 QR 產生函式庫 | `public/qrcodes.html`、`public/vendor/qrcode.mjs` | 純 JS、離線可產生、MIT 授權 | 線上 QR API:會把網址送給外部服務。取捨:標籤網址一換,已印樹牌作廢 |
 | 自寫 xlsx 產生器 | 用程式直接組出 .xlsx(其實是 zip 內含 XML) | `src/xlsx.js` | 原本匯出 CSV 在老師電腦上整列擠在 A 欄;.xlsx 欄位一定分開、數字為數字 | 引入 SheetJS 等函式庫:省事但增加第三方碼與體積。取捨:自己維護,只支援目前需要的簡單格式 |
 | SHA-256 + pepper(通行碼雜湊) | 雜湊=單向指紋;pepper=只存在後端的秘密字串 | `Code.gs` 的 `hashCode`、`getPepper` | Sheet 裡只有指紋,連 Sheet 擁有者也看不到通行碼 | 直接存明碼:最簡單但外洩就全曝光。取捨:通行碼只有 7 碼,若 Sheet 與 pepper 同時外洩,離線暴力破解成本偏低(WORKLOG 有「加長到 8 碼」候選) |
-| vitest(自動測試)+ GitHub Actions(CI) | vitest:JS 測試工具;Actions:每次 push 自動跑測試 | `tests/`(32 個檔)、`.github/workflows/test.yml` | 改壞了會亮紅燈;AI 協助開發時特別需要這道把關 | 純手動測試:容易漏。取捨:測試只證明「程式邏輯」,不證明實機行為(第 7 節) |
+| vitest(自動測試)+ GitHub Actions(CI) | vitest:JS 測試工具;Actions:推到 master 或開 PR 時自動跑測試 | `tests/`(32 個檔)、`.github/workflows/test.yml` | 改壞了會亮紅燈;AI 協助開發時特別需要這道把關 | 純手動測試:容易漏。取捨:測試只證明「程式邏輯」,不證明實機行為(第 7 節) |
 | Node.js | 電腦上執行 JS 的環境 | **只用在**:跑測試、更新樹木資料腳本 `scripts/fetch-official-trees.mjs` | 網站本身不需要 Node;它只是開發工具 | — |
 
 - 沒有用到:資料庫軟體、Java、Python、前端框架、打包工具(webpack 等)。
@@ -245,7 +245,7 @@ Service Worker 攔截每個請求
 - 為什麼要升版:快取優先 = 版本號不變,已安裝的手機會一直用舊檔。
 - 兩份清單(`src/swCacheList.js` 與 `public/sw.js`)必須逐字一致,`tests/duplication-sync.test.js` 守門。原因:Service Worker 不能 `import` 專案模組,只好複製。
 - 不在快取清單(改了不用升版):`admin.html`、`roster.html`、`map.html`、`qrcodes.html`、`teacher.html`、`index.html`;老師頁需要連網。
-- 圖磚需要網路:離線時地圖頁能開,但底圖是空的。
+- 圖磚需要網路:老師端 `map.html` 不在離線快取清單,離線不保證能開;學生端 `trees.html` 的底圖離線為空(離線開啟尚未實機驗證)。
 
 涉及檔案:`public/sw.js`、`src/swCacheList.js`、`public/app.html`(註冊與更新橫幅)、`src/offlineQueue.js`、`src/submit.js`。
 
@@ -273,7 +273,7 @@ Service Worker 攔截每個請求
 
 ## 6. 怎麼做出來的(開發過程)
 
-### 6.1 時間軸(依 git log,共 89 個 commit,2026-09-18 至 2026-09-21)
+### 6.1 時間軸(依 git log,共 89 個 commit(不含本文件的 commit),2026-09-18 至 2026-09-21)
 
 | 日期 | 階段 | 重點 |
 |---|---|---|
@@ -343,7 +343,7 @@ Service Worker 攔截每個請求
 | 通行碼只有 7 碼(6 隨機 + 1 檢查碼),熵約 2^29 | 線上猜不可行;但 Sheet 與 pepper 若同時外洩,離線破解成本偏低 | 加長到 8 碼(前後端要同步改、舊碼全失效) |
 | 用 `iframe` 殼層承載各頁 | 簡單、不必大改舊頁;但硬體返回鍵會直接離開 App、地圖「開啟量測頁」會另開分頁 | 重寫成單頁應用(工程較大) |
 | 圖磚需要網路 | 離線時地圖沒有底圖 | 預先下載校園範圍圖磚(要處理官方使用條款,待確認) |
-| jsQR 為未壓縮 257 KB(檔案約 266,986 bytes) | 首次安裝多下載一點;離線可用是換來的 | 改用壓縮版或瀏覽器內建偵測(相容性待確認) |
+| jsQR 為未壓縮版本,約 267 KB(266,986 bytes) | 首次安裝多下載一點;離線可用是換來的 | 改用壓縮版或瀏覽器內建偵測(相容性待確認) |
 | 只在 GitHub 個人帳號、個人 Gmail 下 | 網站、Sheet、Apps Script、OAuth 都掛在個人帳號;交接前不算學校資產 | 轉移 repo 或加老師為協作者;用校方帳號重建 Sheet/Apps Script/OAuth(見第 9 節) |
 | 校方 Google 帳號可能限制 Apps Script「任何人可存取」 | 若被擋,學生端無法呼叫後端 | 動工前先測一次;不行則需請學校管理員放行或改架構 |
 | 搬到新的 Apps Script 會重新產生 `CODE_PEPPER` | 所有學生通行碼失效,需重發 | 搬家時排定重發通行碼時間 |
@@ -357,9 +357,9 @@ Service Worker 攔截每個請求
 ## 9. 週三交接前待辦清單
 
 ### 清 Sheet 測試資料
-- [ ] 刪「量測紀錄」中樹號 `perf-test` 的 5 筆
-- [ ] 刪樹號 43667 的 1 筆測試資料
-- [ ] 刪「學生名單」測試學生:10101、10102、10103、111、112
+- [ ] 刪「量測紀錄」中樹號 `perf-test` 的測試列(筆數以 Sheet 實際為準,用樹編號欄篩選即可)
+- [ ] 刪樹號 43667 的測試量測(筆數以 Sheet 實際為準;若已被真實使用則保留)
+- [ ] 刪「學生名單」測試學生(目前已知為 10101、10102、10103、111、112,以 Sheet 實際內容為準)
 - [ ] (`docs/HANDOVER.md` 第 8、9 節另提到舊測試資料 `A-023`、`seed-1~3`,一併確認是否還在)
 
 ### 帳號與網址
@@ -435,13 +435,13 @@ Service Worker 攔截每個請求
 |---|---|---|---|
 | 1 | 為什麼不用資料庫/伺服器? | 學校沒有伺服器預算與維護人力。Google Sheet 老師本來就會用,可直接開啟、編輯、匯出;Apps Script 免費且不用主機。取捨:不適合超大量資料。 | 第 2、8 節 |
 | 2 | 資料存在哪?安全嗎? | 存在 Google Sheet(目前是個人 Gmail,交接後應換校方帳號)。通行碼只存雜湊;公開端點不含姓名與座號;老師動作每次在後端驗證。 | 第 5 節、`Code.gs` |
-| 3 | 學生很多人同時用會不會掛? | 後端寫入用鎖讓請求排隊,不會互相覆蓋;但 Apps Script 有每日用量限制與冷啟動延遲,整班同時送出可能較慢。用量上限數字待確認,建議分批量測並先做實測。 | 第 8 節、`handleMeasurement` |
+| 3 | 學生很多人同時用會不會掛? | 後端寫入用鎖讓請求排隊,不會互相覆蓋(等鎖逾時 20 秒的那一筆會失敗,前端可重送);但 Apps Script 有每日用量限制與冷啟動延遲,整班同時送出可能較慢。用量上限數字待確認,建議分批量測並先做實測。 | 第 8 節、`handleMeasurement` |
 | 4 | Google 改政策怎麼辦? | 有風險(Apps Script 政策或校方帳號限制)。資料在 Sheet 可隨時匯出;前端是純靜態網頁,後端 `Code.gs` 約 970 行,可改寫到其他後端。 | 第 8 節 |
 | 5 | 費用? | GitHub Pages、Apps Script、Google Sheet、Google 登入在目前使用方式下都是免費(以各服務現行政策為準,待確認)。 | 第 2 節 |
 | 6 | 網站掛了怎麼辦? | 先看 GitHub Actions 是否紅燈;前端改壞可 Revert 上一個好的 commit;後端可在 Apps Script 切回舊版本。資料在 Sheet 不受程式影響。 | `HANDOVER.md` 第 6 節 |
 | 7 | 怎麼備份資料? | 資料在 Google Sheet:可「檔案 → 下載」成 Excel,或複製一份試算表;程式碼在 GitHub 有完整版本歷史。目前沒有自動備份機制(待確認是否要加)。 | 第 3、8 節 |
 | 8 | 我不會寫程式,怎麼改? | 日常操作(名單、通行碼、匯出)不用寫程式;要改設定看 `HANDOVER.md` 第 3 節對照表;也可用 AI 工具用中文提需求,由自動測試把關。 | `HANDOVER.md` 第 2~4 節 |
-| 9 | 樹高準確嗎?誤差多少? | 用三角函數估算,結果取決於仰角與距離量得準不準,以及眼高假設 1.5 m。實地誤差尚未與真實樹高比對,**不宣稱具體誤差數字**(待確認)。可做法:多人量測、地圖取當天中位數(趨勢圖)。 | 第 4c、7 節 |
+| 9 | 樹高準確嗎?誤差多少? | 用三角函數估算,結果取決於仰角與距離量得準不準,以及眼高假設 1.5 m。實地誤差尚未與真實樹高比對,**不宣稱具體誤差數字**(待確認)。可做法:多人量測、趨勢圖取每天中位數(趨勢圖)。 | 第 4c、7 節 |
 | 10 | 離線時資料會不會遺失? | 存在該裝置的 IndexedDB,有網路自動補送,成功才移除。不會遺失的前提:不要清瀏覽器資料/解除安裝。被後端永久拒絕的資料會移出佇列並在畫面回報。離線開啟安裝版 App 尚未實機驗證。 | 第 4d、7 節 |
 | 11 | 學生忘記通行碼怎麼辦? | 通行碼只存雜湊,連老師也查不到明碼;老師在名單頁按「重設通行碼」重發(同時解除鎖定)。 | `HANDOVER.md` 第 2 節 |
 | 12 | 換學期/新學年怎麼清名單? | 名單頁有匯入、停用,沒有「一鍵清空」;做法:停用畢業生、匯入新名單(已在名簿的只更新姓名)。是否需要整批清除功能待確認。 | `Code.gs` `rosterImport`、`rosterSetStatus` |
