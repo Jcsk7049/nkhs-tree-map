@@ -1,0 +1,32 @@
+# 自動測試:每次有人把程式推上 master,或開 Pull Request,GitHub 就會自動跑一次 npm test。
+# 結果在 GitHub 頁面上方「Actions」分頁:綠色勾勾=全部通過,紅色叉叉=有測試失敗。
+name: 自動測試
+
+on:
+  push:
+    branches: [master]   # 推到 master 時執行
+  pull_request:          # 有人開 Pull Request 時執行
+
+# 同一個分支又推了新的一版時,取消還沒跑完的舊測試,省時間
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest   # GitHub 提供的 Linux 虛擬機(檔名大小寫要完全正確)
+    steps:
+      # 1. 把專案程式碼下載到虛擬機
+      - uses: actions/checkout@v4
+
+      # 2. 安裝 Node.js 22,並快取 npm 套件讓下次更快
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 3. 依 package-lock.json 安裝套件(npm ci 會嚴格照鎖定版本安裝)
+      - run: npm ci
+
+      # 4. 執行全部自動測試
+      - run: npm test
