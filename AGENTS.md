@@ -27,7 +27,7 @@
 ## 規則:不要動的東西
 - 不要編輯 `public/vendor/*`(第三方套件:Leaflet、jsQR、qrcode-generator,授權 Apache-2.0/MIT/BSD)
 - 不要新增 npm 套件(dependency),要加先問
-- QR 標籤網址(`public/qrcodes.html` 的預設網址)已印在樹牌上,更改網址前必須警告使用者「舊樹牌會作廢」
+- QR 標籤網址(`public/qrcodes.html` 的預設網址,取自目前頁面的網址)已印在樹牌上,更改網址前必須警告使用者「舊樹牌會作廢」;**不要在 localhost / 127.0.0.1 上產生要印的 QR**(會變成本機網址,印出來無效)
 
 ## 規則:後端與設定
 - 改了 `apps-script/Code.gs` **不會自動上線**:要人工貼到 Apps Script、部署新版本;完成後一定要提醒使用者

@@ -132,7 +132,7 @@ npm test
 
 | 類別 | 擴充功能(發行者) | 用途 |
 |---|---|---|
-| 必裝/建議 | `Chinese (Traditional) Language Pack for Visual Studio Code`(Microsoft) | 選配:介面繁體中文 |
+| 選配 | `Chinese (Traditional) Language Pack for Visual Studio Code`(Microsoft) | 介面繁體中文 |
 | 必裝/建議 | `Live Server`(Ritwick Dey) | 本機預覽網頁 |
 | 必裝/建議 | `Vitest`(Vitest 官方) | 在測試面板點選執行測試 |
 | 選配 | AI 工具擴充(Claude Code 或 Codex;認明發行者 Anthropic / OpenAI) | 用中文講需求請 AI 改 |
@@ -141,6 +141,7 @@ npm test
 | **不要裝** | Java 相關擴充 | 本專案不是 Java |
 
 - Live Server 用法:VS Code 開**專案根目錄** → 右鍵 `public/app.html` → Open with Live Server → 網址 `http://127.0.0.1:5500/public/app.html`
+- **警告 0(最重要)**:**不要用 Live Server 打開 `qrcodes.html` 來產生要印的 QR**。該頁的預設網址取自「目前網頁的網址」,在本機會變成 `http://127.0.0.1:5500/...`,印出來的樹牌全部無效。要印牌,一定要在**正式網站**的 QR 標籤頁(GitHub Pages 網址)產生,或在頁面裡手動填入正式網址
 - 警告 1:Live Server 只預覽前端,**後端不會在本機跑,送出資料仍會寫進真正的 Google Sheet**;練習請用測試學生,或先複製一份 Sheet
 - 警告 2:Service Worker 快取舊檔案、改了卻沒變時:F12 → Application → Service Workers → Unregister,並清除網站資料
 
@@ -154,7 +155,7 @@ npm test
 | println | `console.log(...)`,在 F12 Console 看 |
 | 手機除錯 | iPhone Safari「開發」選單接線;Android 用 `chrome://inspect`;初學可先截圖給 AI/老師看 |
 | VS Code 除錯 JS | 可以,但初期不必設定 |
-| 後端(Apps Script) | script.google.com →「執行記錄」看 `console.log` |
+| 後端(Apps Script) | script.google.com → 左邊「執行作業」或執行時下方的「執行記錄」看 `console.log` |
 
 | F12 分頁 | 看什麼 |
 |---|---|
