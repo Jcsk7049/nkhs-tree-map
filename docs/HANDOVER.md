@@ -12,7 +12,7 @@
  public/ + src/                apps-script/Code.gs       量測紀錄 / 學生名單 / 教師名單
 ```
 
-- **全部是 JavaScript(不是 Java、沒有 Python)**:前端與後端都是 JavaScript,語法像 Java 但更簡單(第 7 節有小抄)。
+- **全部是 JavaScript(不是 Java、沒有 Python)**:前端與後端都是 JavaScript,語法像 Java 但更簡單(第 7 節有小抄);另有一支 PowerShell 圖示腳本(`scripts/make-icons.ps1`),平常用不到。
 - **沒有要維護的伺服器**:
   - 沒有資料庫(資料在 Google Sheet)
   - 沒有編譯/打包步驟(改檔案、推上 GitHub 就上線)
@@ -55,7 +55,7 @@
 <!-- pointers:start -->
 | 想改什麼 | 檔案 | 搜尋關鍵字 | 改完要做的事 |
 |---|---|---|---|
-| 主題色(綠色 #2e7d32) | `public/app.html` | `#2e7d32` | 其他頁面與 `public/manifest.json` 也有同色,一併搜尋;升 `CACHE_NAME` |
+| 主題色(綠色 #2e7d32) | `public/app.html` | `#2e7d32` | 其他頁面、`src/trendView.js` 與 `public/manifest.json` 也有同色,一併搜尋;若改到列在 `src/swCacheList.js` 的檔案(如 `app.html`、`trendView.js`),要升 `CACHE_NAME` |
 | 校名 / 標題文字 | `public/app.html` | `南港高工 校園樹木量測` | `public/index.html` 有同句;通行碼紙條的校名在 `public/roster.html`;升 `CACHE_NAME` |
 | 量測者眼高(後端) | `apps-script/Code.gs` | `EYE_HEIGHT_M` | 前端 calc 要同步改;後端重新部署 |
 | 量測者眼高(前端 calc) | `src/calc.js` | `eyeHeightM = 1.5` | 要與後端相同;升 `CACHE_NAME`;`npm test` |
@@ -67,14 +67,14 @@
 | 通行碼長度(不建議改) | `src/studentCode.js` | `CODE_BODY_LENGTH` | 見下方說明;需前後端同改,舊碼全失效 |
 | 教師頁分頁清單 | `src/appShell.js` | `TEACHER_TABS` | 升 `CACHE_NAME`;`npm test` |
 | 學生頁分頁清單 | `src/appShell.js` | `STUDENT_TABS` | 升 `CACHE_NAME`;`npm test` |
-| QR 標籤預設網址 | `public/qrcodes.html` | `baseUrlInput.value` | 升 `CACHE_NAME`;**網址一換,已印樹牌作廢(第 9 節 c)** |
+| QR 標籤預設網址 | `public/qrcodes.html` | `baseUrlInput.value` | 此頁不在離線快取,**不用**升 `CACHE_NAME`;**網址一換,已印樹牌作廢(第 9 節 c)** |
 | 後端網址 | `src/config.js` | `API_URL` | 升 `CACHE_NAME`;`npm test` |
 | Google 用戶端 ID(前端) | `src/config.js` | `GOOGLE_CLIENT_ID` | 必須與 Code.gs 相同;升 `CACHE_NAME` |
 | Google 用戶端 ID(後端) | `apps-script/Code.gs` | `GOOGLE_CLIENT_ID` | 必須與 `src/config.js` 相同;後端重新部署 |
 | 離線快取版本 | `public/sw.js` | `CACHE_NAME` | 版本號 +1(見第 5 節) |
 | 更新官方樹木資料 | `scripts/fetch-official-trees.mjs` | `nkhs-trees.json` | 電腦執行 `node scripts/fetch-official-trees.mjs`;升 `CACHE_NAME` |
 | 地圖著色的顏色 / 級距 | `src/heightColors.js` | `NO_DATA_COLOR` | 同檔案 `BANDS` 是各級距顏色;升 `CACHE_NAME` |
-| 地圖預設圖層(航照/電子地圖) | `public/map.html` | `aerial.addTo(map)` | 升 `CACHE_NAME` |
+| 地圖預設圖層(航照/電子地圖) | `public/map.html` | `aerial.addTo(map)` | 此頁不在離線快取,**不用**升 `CACHE_NAME` |
 <!-- pointers:end -->
 
 - **通行碼長度為什麼不建議改**:
@@ -105,7 +105,7 @@ npx.cmd vitest run
 
 ### 前端(網頁)
 1. 改完 → push 到 `master` → GitHub Pages 約 1 分鐘後生效。
-2. **改了被快取的檔案(`public/`、`src/` 下的檔案、`data/nkhs-trees.json`),要把 `public/sw.js` 的 `CACHE_NAME` 版本號 +1**:
+2. **改了「被快取的檔案」(= 列在 `src/swCacheList.js` 裡的檔案,例如 `app.html`、`tree.html`、`trees.html`、`scan.html`、`src/*.js` 的部分模組、`data/nkhs-trees.json`、圖示),要把 `public/sw.js` 的 `CACHE_NAME` 版本號 +1**;`admin.html`、`roster.html`、`map.html`、`qrcodes.html`、`teacher.html`、`index.html` **不在**快取清單內,改了不用升版:
    - 原因:網站用 Service Worker 做離線快取,快取優先
    - 版本號不變,已安裝的手機會一直用舊檔案
    - `src/swCacheList.js` 與 `public/sw.js` 的清單必須一致(有測試守門)
