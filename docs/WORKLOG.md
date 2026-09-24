@@ -1,9 +1,9 @@
 # WORKLOG — 南港高工 校園樹木 QRCode 量測系統
 
-最後更新:2026-09-19(session 結束時)
+最後更新:2026-09-24(session 結束時)
 
 ## 一句話現況
-掃樹上 QR → 學生用「班級座號 + 個人通行碼」填量測 → 寫入 Google Sheet → 地圖依樹高著色、單棵有歷年趨勢圖。老師端(Google 登入 + 教師名單)管理學生名單、地圖、QR 標籤。**程式與前端已上線,399 個測試全過;老師登入與學生通行碼流程已實測通過。**
+掃樹上 QR → 學生用「班級座號 + 個人通行碼」填量測 → 寫入 Google Sheet → 地圖依樹高著色、單棵有歷年趨勢圖。老師端(Google 登入 + 教師名單)管理學生名單、地圖、QR 標籤。**程式與前端已上線(快取 v18),419 個測試全過、GitHub Actions 綠燈;交接文件包已完成,進入「交給指導老師」階段。**
 
 ## 位置
 | 項目 | 值 |
@@ -39,13 +39,28 @@
 - 純函式在 `src/`,`Code.gs` 用 vm 載入真檔配假 Sheet 測(`tests/codeGs.test.js`)。
 - 離線:Service Worker(`public/sw.js`,目前 `tree-map-v18`,安裝時 `cache:'reload'`);`swCacheList.js` 與 `sw.js` 的清單必須一致(有測試守)。
 
+## 交接狀態(2026-09-24)
+- 對象:指導老師(模具科,懂一點 Java,非網頁背景);老師已裝好 VS Code。
+- 交接包(都在 master、已推上 GitHub):
+  - `docs/TECH-OVERVIEW.md`:給學生自己讀懂+口頭報告稿(第 10 節)+老師 20 問(第 11 節)+交接前待辦(第 9 節)
+  - `docs/HANDOVER.md`:給老師的操作/修改手冊(4.1 環境安裝、4.2 VS Code 擴充、4.3 不用編譯器/除錯用 F12)
+  - `CLAUDE.md` = `AGENTS.md`(逐字相同,測試守):給 Claude Code / Codex 的專案守則
+  - `.github/workflows/test.yml`:push master / PR 自動跑測試
+- 已實際驗證 clone 流程:全新資料夾 `git clone` → `npm install`(0 漏洞)→ `npm test` 419 全過。
+- 演示/交接是否已完成:**未確認**(下個 session 先問使用者)。
+
 ## 使用者需要做的(未完成)
-1. Sheet 加分頁 **`教師名單`**(A1 標題「教師 Google 信箱」,A2 填登入用 Gmail)。後端只有收到有效 Google 登入才會自動建,所以尚未出現是正常的。
-2. 開 `teacher.html`(重新整理 2~3 次換新版)→ Google 登入 → 進教師端。
-3. 名單頁貼 2~3 位測試學生 → 列印紙條 → 用通行碼在 `tree.html?treeId=43667` 試送一筆。
-4. 依 `apps-script/README.md`「驗證清單」逐項跑真實環境檢查。
-5. 手動刪除 `public/_tmp_roster.html`、`public/_tmp_tree.html`(我造的臨時測試頁;沒有刪除權限。已 `.gitignore`,不會被提交/部署)。
-6. **重新貼上最新 `Code.gs` 到 Apps Script 並以「新版本」部署**(匯出與教師管理、解除鎖定需要新後端動作),再到 Sheet 驗證:名單頁解除鎖定、管理頁新增/移除教師、CSV 匯出。
+1. GitHub repo 加老師為協作者(目前只有 `Jcsk7049`;repo 為 public,老師可 clone 但不能 push)。
+2. 填 `docs/HANDOVER.md` 第 1 節「Google Sheet 網址/擁有者」(仍標「待確認」)。
+3. 清 Sheet 測試資料(**筆數以 Sheet 實際為準**):樹號 `perf-test`(測速時實際送了 8 筆,之前說 5 筆有誤)、43667 的測試量測、`A-023`、`seed-1~3`、測試學生 10101~10103、111、112。
+4. 手動刪 `public/_tmp_roster.html`、`public/_tmp_tree.html`(已 `.gitignore`,我沒有刪除權限)。
+5. 待學校回覆:子連結型態(子網域/路徑/僅連結)、校方 Google 帳號能否讓 Apps Script「任何人可存取」。**QR 網址定案前不要大量印樹牌。**
+6. 後端:最後一次改 `Code.gs` 是 `47cf660`(階段 3),使用者已部署並實測 `teacher-list` 成功;之後各批都沒動後端,**目前不需重新部署**。
+
+## 資安說法(已跟使用者更正)
+- 「放在 GitHub/Google 所以安全」是錯的說法:平台可靠 ≠ 程式沒漏洞。
+- 已查證:repo 內無任何密鑰;`API_URL`、`GOOGLE_CLIENT_ID` 本來就公開;真正密鑰 `CODE_PEPPER` 只在 Apps Script 指令碼屬性。
+- 對老師的建議說法:有做雜湊/鎖定/後端驗證等防護、開發中有自我紅隊審查,**但未經正式資安稽核**;因涉及學生個資,正式上線前請校方資安/教務過目。
 
 ## 已驗證 / 未驗證
 - 已驗證:259 個單元測試;後端已部署為新版(GET 無 action 回「不認得的請求」);正式網址上登入→送出→寫 Sheet→離線補送→地圖著色→趨勢圖(舊版流程)都實測過;名單頁/學生頁 UI 用假後端在瀏覽器測過;紅隊審查(opus)一輪並修正。
@@ -96,4 +111,8 @@
 ## 文件索引
 - `DEPLOY.md`:部署與各功能說明(兩端架構、地圖、趨勢圖、QR 產生)。
 - `apps-script/README.md`:後端設定、安全設計、回應代碼、真實環境驗證清單、交接清單。
-- `docs/superpowers/specs/`、`docs/superpowers/plans/`:早期設計規格與 MVP 計畫。
+- `docs/superpowers/specs/`、`docs/superpowers/plans/`:各階段設計規格與實作計畫。
+- `docs/HANDOVER.md`:給接手老師的操作/修改手冊(含環境安裝)。
+- `docs/TECH-OVERVIEW.md`:架構與技術總覽、口頭報告稿、老師 20 問。
+- `CLAUDE.md` / `AGENTS.md`:給 AI 工具的專案守則(兩份必須相同)。
+- `README.md`:GitHub 首頁入口。
