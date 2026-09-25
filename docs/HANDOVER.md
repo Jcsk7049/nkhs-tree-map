@@ -24,7 +24,7 @@
 |---|---|---|---|
 | GitHub repo | 個人帳號 `Jcsk7049` | https://github.com/Jcsk7049/nkhs-tree-map | |
 | GitHub Pages(網站) | 同上 repo | https://jcsk7049.github.io/nkhs-tree-map/public/app.html | |
-| Google Sheet(資料庫) | 個人 Gmail 測試版 | 待確認(在該 Gmail 的雲端硬碟) | |
+| Google Sheet(資料庫) | 個人 Gmail 測試版 | https://docs.google.com/spreadsheets/d/11RVErprKEnj9AdbodLkmt1OsjsES7u9ySAp0F4HXyP0/edit | |
 | Apps Script(後端) | 個人 Gmail 測試版,綁在上面的 Sheet | 試算表 → 擴充功能 → Apps Script | |
 | Google OAuth 用戶端 ID(教師登入) | 個人 Gmail 測試版 | Google Cloud Console → 憑證 | |
 | 後端 API 網址 | — | `src/config.js` 的 `API_URL` | |
