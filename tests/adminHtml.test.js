@@ -36,6 +36,13 @@ describe('admin.html 管理頁(原始碼層級檢查)', () => {
     expect(html).toMatch(/window\.confirm\(/);
     expect(html).toMatch(/me\.email|teacher\.email/);
   });
+  it('完整量測紀錄:老師專用動作 records-export,下載 .xlsx,並提醒含個資', () => {
+    expect(html).toContain("'records-export'");
+    expect(html).toMatch(/buildRecordsXlsx\(/);
+    expect(html).toMatch(/recordsXlsxFilename\(/);
+    expect(html).toContain('下載完整量測紀錄');
+    expect(html).toContain('含學生姓名與學號');
+  });
   it('資料更新時間以台灣時間顯示,不再出現 UTC', () => {
     expect(html).toMatch(/formatTaiwanTime\(/);
     expect(html).not.toContain('UTC');

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>量測核可</title>
+  <style>
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { font-family: sans-serif; margin: 0; padding: 16px; color: #1b1b1b; }
+    #gate { max-width: 420px; margin: 60px auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; text-align: center; }
+    #gate-status { color: #555; min-height: 1.4em; }
+    main { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 4px 0 8px; }
+    h2 { font-size: 18px; margin: 0 0 8px; }
+    .hint { color: #555; font-size: 14px; line-height: 1.6; }
+    button { font-size: 15px; padding: 8px 14px; cursor: pointer; }
+    button.primary { background: #2e7d32; color: #fff; border: 0; border-radius: 4px; }
+    button[disabled] { opacity: 0.5; cursor: default; }
+    .msg { min-height: 1.4em; font-size: 14px; margin: 8px 0; }
+    .msg.ok { color: #2e7d32; } .msg.error { color: #c62828; }
+    #pending-list { list-style: none; padding: 0; margin: 0; }
+    #pending-list button { width: 100%; display: flex; justify-content: space-between; gap: 8px; text-align: left; margin: 0 0 6px; background: #fff; border: 1px solid #ccc; border-radius: 6px; }
+    .count { color: #ef6c00; white-space: nowrap; }
+    section.dim { border: 1px solid #ccc; border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
+    .dim-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .dim-head h2 { margin: 0; }
+    select { font-size: 15px; padding: 4px; }
+    .dim-body { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    .pie { width: 180px; height: 180px; border-radius: 50%; flex: 0 0 auto; border: 1px solid #ddd; }
+    .groups { flex: 1 1 220px; min-width: 0; }
+    .groups label { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 15px; }
+    .swatch { width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto; }
+    .tie { color: #c62828; font-size: 14px; margin-top: 8px; }
+    #plan { background: #f1f8e9; border: 1px solid #aed581; border-radius: 6px; padding: 10px 12px; margin: 0 0 10px; line-height: 1.6; }
+    #last-box { margin-top: 18px; padding-top: 10px; border-top: 1px dashed #ccc; }
+  </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <div id="gate">
+    <h1>教師登入</h1>
+    <p id="gate-status">載入中…</p>
+    <div id="gate-button" style="display:flex; justify-content:center"></div>
+    <p style="color:#888; font-size:13px">此頁僅供老師使用。</p>
+  </div>
+
+  <main id="gated" hidden>
+    <div id="msg" class="msg" role="status"></div>
+
+    <section id="list-view">
+      <h1>待核可的樹</h1>
+      <p class="hint">學生送出的量測要經老師核可,才會出現在趨勢圖、地圖與匯出。點一棵樹開始核可。</p>
+      <button type="button" id="reload">重新載入</button>
+      <p id="list-empty" class="hint" hidden>目前沒有待核可的量測。</p>
+      <ul id="pending-list"></ul>
+      <p id="other-note" class="hint"></p>
+    </section>
+
+    <section id="tree-view" hidden>
+      <button type="button" id="back">← 返回清單</button>
+      <h1 id="tree-title"></h1>
+      <p id="batch-info" class="hint"></p>
+
+      <section class="dim" id="dim-height">
+        <div class="dim-head">
+          <h2>樹高</h2>
+          <label>組距
+            <select id="width-height">
+              <option value="10">0.1 公尺</option>
+              <option value="50" selected>0.5 公尺</option>
+              <option value="100">1 公尺</option>
+            </select>
+          </label>
+        </div>
+        <div class="dim-body"><div class="pie"></div><div class="groups"></div></div>
+        <div class="tie" hidden></div>
+      </section>
+
+      <section class="dim" id="dim-girth">
+        <div class="dim-head">
+          <h2>樹圍</h2>
+          <label>組距
+            <select id="width-girth">
+              <option value="10">1 公分</option>
+              <option value="50" selected>5 公分</option>
+              <option value="100">10 公分</option>
+            </select>
+          </label>
+        </div>
+        <div class="dim-body"><div class="pie"></div><div class="groups"></div></div>
+        <div class="tie" hidden></div>
+      </section>
+
+      <div id="plan"></div>
+      <button type="button" class="primary" id="approve-btn">核可</button>
+
+      <div id="last-box" hidden>
+        <p id="last-text" class="hint"></p>
+        <button type="button" id="undo-btn">撤銷上次核可</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
+    import { requireTeacher } from '../src/teacherGate.js';
+    import { applyEmbedMode } from '../src/embed.js';
+    import { groupValues, groupLabel } from '../src/approval.js';
+
+    applyEmbedMode(document, window.location.search);
+    const me = await requireTeacher({ apiUrl: API_URL, clientId: GOOGLE_CLIENT_ID });
+
+    const COLORS = ['#1565c0', '#ef6c00', '#2e7d32', '#6a1b9a', '#c62828', '#00838f', '#9e9d24', '#5d4037'];
+    const DIMS = {
+      height: { field: 'height', scale: 100, unit: 'm', decimals: 1, name: '樹高' },
+      girth: { field: 'girth', scale: 10, unit: 'cm', decimals: 0, name: '樹圍' },
+    };
+
+    const msgEl = document.getElementById('msg');
+    const listView = document.getElementById('list-view');
+    const treeView = document.getElementById('tree-view');
+    const listEl = document.getElementById('pending-list');
+    const approveBtn = document.getElementById('approve-btn');
+    const undoBtn = document.getElementById('undo-btn');
+
+    let trees = null; // 官方樹木,只載入一次
+    let current = null; // { treeId, sp, records, last }
+    const chosen = { height: null, girth: null }; // 各自選中的組 k
+    const results = { height: null, girth: null };
+
+    function say(text, kind) {
+      msgEl.textContent = text;
+      msgEl.className = `msg ${kind || ''}`;
+    }
+
+    function explain(err) {
+      const text = String(err && err.message ? err.message : err);
+      return text.includes('不認得的動作')
+        ? '後端還是舊版,請先把最新的 Code.gs 貼進 Apps Script 並重新部署(新版本)。'
+        : text;
+    }
+
+    function dayOf(iso) {
+      const ms = Date.parse(iso);
+      return Number.isNaN(ms) ? '' : new Date(ms + 8 * 3600000).toISOString().slice(0, 10);
+    }
+
+    // ---- 待核可清單 ----
+    async function loadList() {
+      if (!trees) {
+        const res = await fetch('../data/nkhs-trees.json');
+        if (!res.ok) throw new Error(`官方樹木資料載入失敗(HTTP ${res.status})`);
+        trees = (await res.json()).trees;
+      }
+      const res = await fetch(`${API_URL}?action=summary`);
+      if (!res.ok) throw new Error(`量測資料載入失敗(HTTP ${res.status})`);
+      const body = await res.json();
+      if (body.status !== 'ok') throw new Error(body.error || '後端回應異常');
+      const pending = Array.isArray(body.pending) ? body.pending : [];
+      const species = new Map(trees.map((t) => [t.no, t.sp]));
+      // 自己過濾官方樹號,不依賴 heightColors.js 的新版 matchSummary:
+      // 更新過渡期 Service Worker 可能還在供應舊版共用模組。
+      const pendingByNo = new Map();
+      for (const p of pending) {
+        const no = String(p.no);
+        if (species.has(no)) pendingByNo.set(no, Number(p.count) || 0);
+      }
+
+      listEl.textContent = '';
+      const sorted = [...pendingByNo].sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]));
+      for (const [no, count] of sorted) {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const name = document.createElement('span');
+        name.textContent = `${no} ${species.get(no) || ''}`;
+        const badge = document.createElement('span');
+        badge.className = 'count';
+        badge.textContent = `待核可 ${count} 筆`;
+        btn.append(name, badge);
+        btn.addEventListener('click', () => guarded(() => openTree(no, species.get(no) || '')));
+        li.append(btn);
+        listEl.append(li);
+      }
+      document.getElementById('list-empty').hidden = sorted.length > 0;
+      const others = pending.length - pendingByNo.size;
+      document.getElementById('other-note').textContent = others > 0 ? `另有 ${others} 個非官方樹號(測試資料等)未列出。` : '';
+    }
+
+    function showList() {
+      treeView.hidden = true;
+      listView.hidden = false;
+      current = null;
+    }
+
+    // ---- 單棵樹 ----
+    async function openTree(no, sp) {
+      const batch = await me.call('approval-batch', { treeId: no });
+      current = { treeId: no, sp, records: batch.records, last: batch.last };
+      listView.hidden = true;
+      treeView.hidden = false;
+      document.getElementById('tree-title').textContent = `${no} ${sp}`;
+      const days = current.records.map((r) => dayOf(r.at)).filter(Boolean).sort();
+      document.getElementById('batch-info').textContent = current.records.length > 0
+        ? `本批 ${current.records.length} 筆(${days[0]} ～ ${days[days.length - 1]} 量測)`
+        : '這棵樹目前沒有待核可的量測。';
+      renderDim('height');
+      renderDim('girth');
+      renderPlan();
+      renderLast();
+    }
+
+    function renderDim(dim) {
+      const cfg = DIMS[dim];
+      const box = document.getElementById(`dim-${dim}`);
+      const width = Number(document.getElementById(`width-${dim}`).value);
+      const result = groupValues(current.records, { field: cfg.field, scale: cfg.scale, width });
+      results[dim] = result;
+      chosen[dim] = result.defaultK;
+
+      const total = result.groups.reduce((sum, g) => sum + g.count, 0);
+      const pie = box.querySelector('.pie');
+      let start = 0;
+      const stops = result.groups.map((g, i) => {
+        const end = start + (g.count / total) * 100;
+        const stop = `${COLORS[i % COLORS.length]} ${start}% ${end}%`;
+        start = end;
+        return stop;
+      });
+      pie.style.background = stops.length > 0 ? `conic-gradient(${stops.join(', ')})` : '#eee';
+
+      const list = box.querySelector('.groups');
+      list.textContent = '';
+      if (result.groups.length === 0) {
+        list.textContent = `沒有${cfg.name}資料`;
+      }
+      result.groups.forEach((g, i) => {
+        const label = document.createElement('label');
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = `pick-${dim}`;
+        radio.checked = g.k === chosen[dim];
+        radio.addEventListener('change', () => {
+          chosen[dim] = g.k;
+          renderPlan();
+        });
+        const swatch = document.createElement('span');
+        swatch.className = 'swatch';
+        swatch.style.background = COLORS[i % COLORS.length];
+        const text = document.createElement('span');
+        text.textContent = `${groupLabel(g, cfg.unit, cfg.decimals)}　${g.count} 人　平均 ${g.mean}`;
+        label.append(radio, swatch, text);
+        list.append(label);
+      });
+
+      const tie = box.querySelector('.tie');
+      tie.hidden = !result.tie;
+      tie.textContent = '⚠ 有兩組以上一樣多人,已先選數值較小的一組,請確認要選哪一組。';
+    }
+
+    function chosenGroup(dim) {
+      const result = results[dim];
+      return result ? result.groups.find((g) => g.k === chosen[dim]) || null : null;
+    }
+
+    function planText() {
+      const h = chosenGroup('height');
+      const g = chosenGroup('girth');
+      const hText = h ? `樹高 ${h.mean} m(${h.count} 人平均)` : '樹高:沒有資料';
+      const gText = g ? `樹圍 ${g.mean} cm(${g.count} 人平均)` : '樹圍:沒有資料';
+      return `將登記:${hText}、${gText}`;
+    }
+
+    function renderPlan() {
+      document.getElementById('plan').textContent = planText();
+      approveBtn.disabled = !chosenGroup('height');
+    }
+
+    function renderLast() {
+      const last = current.last;
+      document.getElementById('last-box').hidden = !last;
+      if (!last) return;
+      const girth = last.girth ? `、樹圍 ${last.girth} cm` : '';
+      document.getElementById('last-text').textContent = `上次核可:${dayOf(last.at)} 量測,樹高 ${last.height} m${girth}`;
+    }
+
+    // ---- 核可 / 撤銷 ----
+    async function approve() {
+      if (!window.confirm(`確定核可 ${current.treeId}?\n${planText()}`)) return;
+      await me.call('approval-approve', {
+        treeId: current.treeId,
+        keys: current.records.map((r) => r.key),
+        heightWidth: Number(document.getElementById('width-height').value),
+        heightK: chosen.height,
+        girthWidth: Number(document.getElementById('width-girth').value),
+        girthK: chosen.girth,
+      });
+      say(`${current.treeId} 已核可。`, 'ok');
+      showList();
+      await loadList();
+    }
+
+    async function undo() {
+      const last = current.last;
+      if (!window.confirm(`確定撤銷 ${current.treeId} 上次的核可?那批量測會回到待核可。`)) return;
+      await me.call('approval-undo', { treeId: current.treeId, id: last.id });
+      say(`${current.treeId} 上次的核可已撤銷。`, 'ok');
+      await openTree(current.treeId, current.sp);
+    }
+
+    /** 處理期間鎖住按鈕防連點;批次已變動時自動重新載入這棵樹。 */
+    async function guarded(action) {
+      const buttons = [...document.querySelectorAll('button')];
+      buttons.forEach((b) => { b.disabled = true; });
+      try {
+        await action();
+      } catch (err) {
+        if (err && err.code === 'BATCH_CHANGED' && current) {
+          say('有新的量測或別的老師剛處理過,已重新載入。', 'error');
+          try {
+            await openTree(current.treeId, current.sp);
+          } catch (reloadErr) {
+            say(explain(reloadErr), 'error');
+          }
+        } else {
+          say(explain(err), 'error');
+        }
+      } finally {
+        buttons.forEach((b) => { b.disabled = false; });
+        if (current) renderPlan();
+      }
+    }
+
+    document.getElementById('reload').addEventListener('click', () => guarded(loadList));
+    document.getElementById('back').addEventListener('click', () => guarded(async () => { showList(); await loadList(); }));
+    for (const dim of Object.keys(DIMS)) {
+      document.getElementById(`width-${dim}`).addEventListener('change', () => {
+        renderDim(dim);
+        renderPlan();
+      });
+    }
+    approveBtn.addEventListener('click', () => guarded(approve));
+    undoBtn.addEventListener('click', () => guarded(undo));
+
+    guarded(loadList);
+  </script>
+</body>
+</html>

@@ -32,12 +32,12 @@ function buildChart({ title, unit, color }, series) {
   }
 
   const daily = dailyMedian(series);
-  const { dots, line, yTicks, xTicks } = layoutChart(series, daily, BOX);
+  const { line, yTicks, xTicks } = layoutChart(series, daily, BOX);
   const { width, height, pad } = BOX;
   const latest = series[series.length - 1];
 
   const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width: '100%', role: 'img' });
-  svg.setAttribute('aria-label', `${title}歷年變化,共 ${series.length} 筆,最新 ${latest.v} ${unit}`);
+  svg.setAttribute('aria-label', `${title}歷年變化,共 ${series.length} 次核可,最新 ${latest.v} ${unit}`);
 
   for (const tick of yTicks) {
     svg.append(svgEl('line', { x1: pad.left, x2: width - pad.right, y1: tick.y, y2: tick.y, stroke: '#e0e0e0', 'stroke-width': 1 }));
@@ -57,8 +57,8 @@ function buildChart({ title, unit, color }, series) {
   if (line.length > 1) {
     svg.append(svgEl('polyline', { points: line.map((p) => `${p.x},${p.y}`).join(' '), fill: 'none', stroke: color, 'stroke-width': 2 }));
   }
+  // 每個點都是老師核可的一次量測(已是多人平均),不再另畫逐筆淡色點。
   for (const p of line) svg.append(svgEl('circle', { cx: p.x, cy: p.y, r: 4, fill: color }));
-  for (const d of dots) svg.append(svgEl('circle', { cx: d.x, cy: d.y, r: 3, fill: color, 'fill-opacity': 0.35 }));
 
   figure.append(svg);
   return figure;
@@ -74,7 +74,7 @@ function buildRecentTable(points) {
   const table = document.createElement('table');
   table.style.cssText = 'width:100%; border-collapse:collapse; font-size:14px; margin-top:8px';
   const head = table.createTHead().insertRow();
-  for (const text of ['時間(台灣)', '樹高(m)', '樹圍(cm)']) {
+  for (const text of ['量測日(台灣)', '樹高(m)', '樹圍(cm)', '採用人數']) {
     const th = document.createElement('th');
     th.textContent = text;
     th.style.cssText = 'text-align:left; border-bottom:1px solid #ccc; padding:4px';
@@ -83,7 +83,7 @@ function buildRecentTable(points) {
   const body = table.createTBody();
   for (const p of recent) {
     const row = body.insertRow();
-    for (const text of [formatDateTime(p.at), String(p.height), p.girth ? String(p.girth) : '—']) {
+    for (const text of [formatDateTime(p.at).slice(0, 10), String(p.height), p.girth ? String(p.girth) : '—', p.n ? String(p.n) : '—']) {
       const td = row.insertCell();
       td.textContent = text;
       td.style.padding = '4px';
@@ -95,12 +95,12 @@ function buildRecentTable(points) {
 export function renderHistory(container, points) {
   container.textContent = '';
   if (points.length === 0) {
-    container.textContent = '這棵樹還沒有量測紀錄,您送出的會是第一筆。';
+    container.textContent = '這棵樹還沒有老師核可的量測。同學送出的量測,經老師核可後才會出現在這裡。';
     return;
   }
   const note = document.createElement('div');
   note.style.cssText = 'color:#555; font-size:13px';
-  note.textContent = `共 ${points.length} 筆。淡色圓點是每一筆量測,實心點與折線是「每天的中位數」。`;
+  note.textContent = `共 ${points.length} 次核可。每個點是老師核可的一次量測(多位同學的平均)。`;
   container.append(
     note,
     buildChart({ title: '樹高', unit: 'm', color: '#1565c0' }, toSeries(points, 'height')),

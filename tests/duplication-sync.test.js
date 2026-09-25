@@ -105,7 +105,7 @@ describe('scan.html 與快取清單', () => {
 });
 
 describe('後端網址與用戶端 ID 只在 src/config.js 一處設定', () => {
-  const pages = ['tree.html', 'map.html', 'qrcodes.html', 'teacher.html', 'roster.html', 'admin.html'];
+  const pages = ['tree.html', 'map.html', 'qrcodes.html', 'teacher.html', 'roster.html', 'admin.html', 'approve.html'];
 
   it('沒有任何頁面自己寫死 API_URL / GOOGLE_CLIENT_ID(改了 config.js 卻漏改某頁會出事)', () => {
     for (const page of pages) {

@@ -31,7 +31,8 @@
   <div id="offline" hidden>目前沒有網路,無法顯示地圖。請直接掃樹上的 QRCode 開始量測。</div>
   <div id="bar">
     <button type="button" id="locate">我的位置</button>
-    <span class="legend"><span class="dot" style="background:#2e7d32"></span>已量測</span>
+    <span class="legend"><span class="dot" style="background:#2e7d32"></span>已核可</span>
+    <span class="legend"><span class="dot" style="background:#f57c00"></span>待核可</span>
     <span class="legend"><span class="dot" style="background:#9e9e9e"></span>尚未量測</span>
   </div>
   <div id="message"></div>
@@ -45,7 +46,7 @@
   <script type="module">
     import { API_URL } from '../src/config.js';
     import { nearestTrees, formatDistance } from '../src/nearby.js';
-    import { matchSummary } from '../src/heightColors.js';
+    import { matchSummary, PENDING_COLOR } from '../src/heightColors.js';
     import { buildHash } from '../src/appShell.js';
     import { isEmbedded } from '../src/embed.js';
 
@@ -95,7 +96,8 @@
     }).addTo(map);
 
     let trees = [];
-    let measurements = new Map();
+    let measurements = new Map(); // 已核可
+    let pendingByNo = new Map(); // 待核可筆數
     const markers = new Map();
     const markerLayer = L.layerGroup().addTo(map);
 
@@ -107,7 +109,10 @@
       box.append(title);
       const m = measurements.get(tree.no);
       const info = document.createElement('div');
-      info.textContent = m ? `最新樹高 ${m.height} 公尺` : '還沒有人量過';
+      const waiting = pendingByNo.get(tree.no);
+      info.textContent = m
+        ? `核可樹高 ${m.height} 公尺`
+        : waiting ? `已有 ${waiting} 筆量測,等老師核可` : '還沒有人量過';
       box.append(info);
       const go = document.createElement('button');
       go.type = 'button';
@@ -118,8 +123,7 @@
     }
 
     function styleFor(no) {
-      const measured = measurements.has(no);
-      const color = measured ? MEASURED_COLOR : UNMEASURED_COLOR;
+      const color = measurements.has(no) ? MEASURED_COLOR : pendingByNo.has(no) ? PENDING_COLOR : UNMEASURED_COLOR;
       return { radius: 6, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 0.95 };
     }
 
@@ -141,7 +145,9 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = await res.json();
         if (body.status !== 'ok') throw new Error(body.error || '後端回應異常');
-        measurements = matchSummary(trees, body.trees).byNo;
+        const matched = matchSummary(trees, body.trees, body.pending);
+        measurements = matched.byNo;
+        pendingByNo = matched.pendingByNo;
         for (const [no, marker] of markers) marker.setStyle(styleFor(no));
       } catch (err) {
         say(`量測狀態載入失敗(地圖仍可使用):${err.message}`, true);

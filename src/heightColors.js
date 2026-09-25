@@ -1,4 +1,6 @@
 export const NO_DATA_COLOR = '#9e9e9e';
+// 有量測但老師還沒核可:橘色,與樹高的藍色系明顯不同。
+export const PENDING_COLOR = '#f57c00';
 
 // 藍色由淺到深,深淺差異即使色盲/黑白列印也分得出來。
 const BANDS = [
@@ -19,7 +21,8 @@ export function colorForHeight(height) {
 }
 
 // 摘要只保留對得上官方樹號的量測;測試資料(如 A-023)或已不在官方名單的樹號只計入 ignored。
-export function matchSummary(trees, summary) {
+// summary = 已核可的樹;pending = 待核可筆數 [{no, count}]。
+export function matchSummary(trees, summary, pending = []) {
   const official = new Set(trees.map((t) => t.no));
   const byNo = new Map();
   let ignored = 0;
@@ -29,5 +32,10 @@ export function matchSummary(trees, summary) {
     if (official.has(no)) byNo.set(no, { ...item, no });
     else ignored += 1;
   }
-  return { byNo, measured: byNo.size, ignored };
+  const pendingByNo = new Map();
+  for (const item of Array.isArray(pending) ? pending : []) {
+    const no = String(item.no);
+    if (official.has(no)) pendingByNo.set(no, Number(item.count) || 0);
+  }
+  return { byNo, measured: byNo.size, ignored, pendingByNo };
 }

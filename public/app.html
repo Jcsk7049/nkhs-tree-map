@@ -27,7 +27,8 @@
     #update-banner button { margin-left: 8px; padding: 3px 10px; font-size: 14px; }
     #placeholder { padding: 32px 16px; color: #555; line-height: 1.7; }
     #tabbar { display: flex; border-top: 1px solid #ccc; background: #f7f7f7; padding-bottom: env(safe-area-inset-bottom); }
-    #tabbar button { flex: 1; padding: 12px 4px; border: 0; background: none; font: inherit; font-size: 15px; color: #555; cursor: pointer; }
+    #tabbar button { flex: 1; padding: 12px 4px; border: 0; background: none; font: inherit; font-size: 15px; color: #555; cursor: pointer; white-space: nowrap; }
+    @media (max-width: 400px) { #tabbar button { font-size: 13px; padding: 12px 2px; } }
     #tabbar button[aria-current="page"] { color: #2e7d32; font-weight: bold; border-top: 3px solid #2e7d32; margin-top: -1px; }
     #tabbar .switch { flex: 0 0 auto; padding: 12px 14px; font-size: 13px; color: #888; }
   </style>
@@ -39,7 +40,7 @@
       <h1>南港高工 校園樹木量測</h1>
       <button type="button" class="role" data-role="student">
         <strong>我是學生</strong>
-        <span>掃樹上的 QRCode,輸入班級座號與老師發的通行碼,登記這棵樹的量測。</span>
+        <span>掃樹上的 QRCode,輸入學號與老師發的通行碼,登記這棵樹的量測。</span>
       </button>
       <button type="button" class="role" data-role="teacher">
         <strong>我是老師</strong>

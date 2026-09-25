@@ -5,7 +5,7 @@
  * 本檔案需綁定在「校園樹木量測紀錄」試算表的「擴充功能 → Apps Script」中執行。
  *
  * 兩種身分:
- *   學生 — 用「班級座號 + 個人通行碼」送出量測;姓名由「學生名單」帶入,不信任前端傳來的姓名。
+ *   學生 — 用「學號 + 個人通行碼」送出量測;姓名由「學生名單」帶入,不信任前端傳來的姓名。
  *   老師 — 用 Google 登入的 ID Token,email 必須在「教師名單」分頁,才能管理學生名單。
  *   公開只讀(不含個資):?action=summary 與 ?action=history。
  *
@@ -16,9 +16,10 @@
  *     失敗 → { status: 'error', code: '<代碼>', error: '<給人看的訊息>' }
  *   code 的意義:
  *     VALIDATION_FAILED — 資料不合法,永久拒絕,前端會把該筆移出離線佇列
- *     STUDENT_REJECTED  — 班級座號/通行碼錯誤或該生已被停用,永久拒絕(重送不會變好)
- *     STUDENT_LOCKED    — 同一班級座號連續錯太多次,暫時鎖定,前端保留稍後重試
+ *     STUDENT_REJECTED  — 學號/通行碼錯誤或該生已被停用,永久拒絕(重送不會變好)
+ *     STUDENT_LOCKED    — 同一學號連續錯太多次,暫時鎖定,前端保留稍後重試
  *     AUTH_EXPIRED / AUTH_REJECTED / TEACHER_REJECTED — 老師端登入問題
+ *     BATCH_CHANGED     — 核可/撤銷時該樹的待核可批次已變動(新量測或別的老師剛處理),前端重新載入
  *     SERVER_ERROR      — 後端自身出錯,前端保留重試
  */
 
@@ -27,7 +28,9 @@ var GOOGLE_CLIENT_ID = '315947250270-9519c1ga10lm01ljoccu8h4c7dv3a5uh.apps.googl
 var SHEET_NAME_RECORDS = '量測紀錄';
 var SHEET_NAME_STUDENTS = '學生名單';
 var SHEET_NAME_TEACHERS = '教師名單';
-var STUDENT_HEADER = ['班級座號', '姓名', '通行碼雜湊', '狀態', '更新時間'];
+var STUDENT_HEADER = ['學號', '姓名', '通行碼雜湊', '狀態', '更新時間'];
+// 學號 8 碼:入學年 3 + 科別 2 + 班級 1(0 忠、1 孝)+ 座號 2。與 src/studentId.js 一致。
+var STUDENT_ID_PATTERN = /^\d{5}[01]\d{2}$/;
 var TEACHER_HEADER = ['教師 Google 信箱'];
 var STATUS_ENABLED = '啟用';
 var STATUS_DISABLED = '停用';
@@ -181,14 +184,14 @@ function recordFailure(cache, key) {
 }
 
 /**
- * 驗證「班級座號 + 通行碼」。錯誤訊息一律相同(不透露是座號不存在、碼錯還是被停用),
- * 並且對同一班級座號累計失敗次數:連錯 MAX_FAILS 次就鎖 LOCK_SECONDS 秒,擋住暴力猜碼。
+ * 驗證「學號 + 通行碼」。錯誤訊息一律相同(不透露是學號不存在、碼錯還是被停用),
+ * 並且對同一學號累計失敗次數:連錯 MAX_FAILS 次就鎖 LOCK_SECONDS 秒,擋住暴力猜碼。
  * @return {{ok: true, name: string, classNo: string}|{ok: false, code: string, error: string}}
  */
 function verifyStudent(classNoRaw, codeRaw) {
   var classNo = normalizeClassNo(classNoRaw);
   var code = normalizeCode(codeRaw);
-  var rejected = { ok: false, code: 'STUDENT_REJECTED', error: '班級座號或通行碼錯誤,或這位同學已被停用' };
+  var rejected = { ok: false, code: 'STUDENT_REJECTED', error: '學號或通行碼錯誤,或這位同學已被停用' };
 
   if (classNo === '') {
     return rejected;
@@ -390,7 +393,7 @@ function validateMeasurementPayload(data) {
     errors.push('缺少樹編號');
   }
   if (normalizeClassNo(data.studentClassNo) === '') {
-    errors.push('缺少班級座號');
+    errors.push('缺少學號');
   }
   if (normalizeCode(data.studentCode) === '') {
     errors.push('缺少通行碼');
@@ -591,11 +594,13 @@ function rosterImport(list) {
       var name = String(item.name === null || item.name === undefined ? '' : item.name).trim();
       var reason = '';
       if (classNo === '' || name === '') {
-        reason = '班級座號與姓名都要填';
-      } else if (classNo.length > MAX_FIELD_LENGTH || name.length > MAX_FIELD_LENGTH) {
-        reason = '班級座號或姓名太長(上限 ' + MAX_FIELD_LENGTH + ' 字)';
+        reason = '學號與姓名都要填';
+      } else if (!STUDENT_ID_PATTERN.test(classNo)) {
+        reason = '學號格式不對(8 碼數字,第 6 碼 0 或 1)';
+      } else if (name.length > MAX_FIELD_LENGTH) {
+        reason = '姓名太長(上限 ' + MAX_FIELD_LENGTH + ' 字)';
       } else if (seen[classNo]) {
-        reason = '名單中班級座號重複';
+        reason = '名單中學號重複';
       }
       if (reason) {
         skipped.push({ line: i + 1, classNo: classNo, reason: reason });
@@ -803,6 +808,14 @@ function handleTeacherAction(data) {
       return teacherAdd(data.email);
     case 'teacher-remove':
       return teacherRemove(data.email, teacher.email);
+    case 'approval-batch':
+      return approvalBatch(data);
+    case 'approval-approve':
+      return approvalApprove(data, teacher.email);
+    case 'approval-undo':
+      return approvalUndo(data, teacher.email);
+    case 'records-export':
+      return recordsExport();
     default:
       return errorOutput('VALIDATION_FAILED', '不認得的動作');
   }
@@ -815,69 +828,220 @@ function handleTeacherAction(data) {
 // 「量測紀錄」分頁的欄位位置(1-based),與 README.md 的欄位表一致。
 var COLUMN_TREE_ID = 1;
 var COLUMN_TIMESTAMP = 2;
+var COLUMN_CLASS_NO = 4;
 var COLUMN_HEIGHT = 7;
 var COLUMN_GIRTH = 8;
-var SUMMARY_CACHE_KEY = 'tree-summary-v1';
+// 第 11 欄「核可編號」:空白或對不到有效核可 = 待核可。
+var COLUMN_APPROVAL_ID = 11;
+var SUMMARY_CACHE_KEY = 'tree-summary-v2';
 var SUMMARY_CACHE_SECONDS = 300;
-var HISTORY_CACHE_PREFIX = 'tree-history-v1:';
+var HISTORY_CACHE_PREFIX = 'tree-history-v2:';
 var MAX_HISTORY_POINTS = 200;
 var MAX_TREE_ID_LENGTH = 40;
 
+// 「核可紀錄」分頁:一次核可一列。這一列寫入 = 核可生效;撤銷只把狀態改掉。
+var SHEET_NAME_APPROVALS = '核可紀錄';
+var APPROVAL_HEADER = ['核可編號', '樹號', '量測日', '核可時間', '核可老師', '樹高', '樹高組別', '樹高人數', '樹圍', '樹圍組別', '樹圍人數', '狀態', '撤銷時間'];
+var APPROVAL_VALID = '有效';
+
+function toIso(value) {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function cellText(value) {
+  return String(value === null || value === undefined ? '' : value).trim();
+}
+
+/**
+ * 樹號:寫入時 sanitizeCellText 可能在 = + - @ 開頭的樹號前補單引號;
+ * 讀回時去掉,「量測紀錄」、「核可紀錄」與前端傳來的樹號才對得上。
+ */
+function treeIdOf(value) {
+  var text = cellText(value);
+  return /^'[=+\-@]/.test(text) ? text.slice(1) : text;
+}
+
 function parseMeasurementRow(row) {
-  var rawNo = row[COLUMN_TREE_ID - 1];
-  var no = String(rawNo === null || rawNo === undefined ? '' : rawNo).trim();
+  var no = treeIdOf(row[COLUMN_TREE_ID - 1]);
   var height = Number(row[COLUMN_HEIGHT - 1]);
   if (no === '' || !(height > 0)) {
     return null;
   }
-  var rawAt = row[COLUMN_TIMESTAMP - 1];
-  var at = rawAt instanceof Date ? rawAt.toISOString() : String(rawAt);
   var girthRaw = row[COLUMN_GIRTH - 1];
   var girth = girthRaw === '' || girthRaw === null || girthRaw === undefined ? NaN : Number(girthRaw);
-  return { no: no, height: height, girth: girth > 0 ? girth : null, at: at };
+  return {
+    no: no,
+    height: height,
+    girth: girth > 0 ? girth : null,
+    at: toIso(row[COLUMN_TIMESTAMP - 1]),
+    classNo: cellText(row[COLUMN_CLASS_NO - 1]),
+    rid: cellText(row[COLUMN_CLIENT_RECORD_ID - 1]),
+    aid: cellText(row[COLUMN_APPROVAL_ID - 1]),
+  };
 }
 
 /**
- * 每棵樹一筆:最新樹高、樹圍、時間、有效筆數。「最新」以量測時間戳為準,與列的先後順序無關。
- * 樹高不是正數的列略過。**刻意不回傳姓名/座號**,這份摘要是公開的。
+ * 圓餅分組。規則與 src/approval.js 的 groupValues 逐字對應(改一邊要改另一邊,有測試比對)。
+ * 換成整數單位(樹高公分、樹圍公釐)再分組與平均,避免浮點誤差;同一學號只算最新一筆。
  */
-function summarizeRows(rows) {
-  // 樹號由學生送出,可能是 __proto__、constructor 這類特殊鍵:一定要用「沒有原型」的物件當 map。
-  var byTree = Object.create(null);
-  var order = [];
-  for (var i = 0; i < rows.length; i++) {
-    var m = parseMeasurementRow(rows[i]);
-    if (!m) {
+function groupValues(records, field, scale, width) {
+  var latest = Object.create(null);
+  var whoOrder = [];
+  for (var i = 0; i < records.length; i++) {
+    var rec = records[i];
+    if (!(Number(rec[field]) > 0)) {
       continue;
     }
-    var entry = byTree[m.no];
-    if (!entry) {
-      entry = { no: m.no, height: m.height, girth: m.girth, at: m.at, n: 0 };
-      byTree[m.no] = entry;
-      order.push(m.no);
-    } else if (m.at > entry.at) {
-      entry.height = m.height;
-      entry.girth = m.girth;
-      entry.at = m.at;
+    var who = rec.classNo ? 's:' + rec.classNo : 'r:' + i;
+    var prev = latest[who];
+    if (!prev) {
+      whoOrder.push(who);
     }
-    entry.n += 1;
+    if (!prev || String(rec.at) > String(prev.at)) {
+      latest[who] = rec;
+    }
   }
-  return order.map(function (no) {
-    return byTree[no];
+  var byK = Object.create(null);
+  var ks = [];
+  for (var j = 0; j < whoOrder.length; j++) {
+    var r = latest[whoOrder[j]];
+    var u = Math.round(Number(r[field]) * scale);
+    var k = Math.floor(u / width);
+    var g = byK[k];
+    if (!g) {
+      g = { k: k, sum: 0, count: 0, latestAt: '' };
+      byK[k] = g;
+      ks.push(k);
+    }
+    g.sum += u;
+    g.count += 1;
+    if (String(r.at) > g.latestAt) {
+      g.latestAt = String(r.at);
+    }
+  }
+  ks.sort(function (a, b) {
+    return a - b;
   });
+  var groups = ks.map(function (key) {
+    var grp = byK[key];
+    return {
+      k: grp.k,
+      lo: (grp.k * width) / scale,
+      hi: ((grp.k + 1) * width) / scale,
+      count: grp.count,
+      mean: Math.round(grp.sum / grp.count) / scale,
+      latestAt: grp.latestAt,
+    };
+  });
+  var best = null;
+  var tie = false;
+  for (var n = 0; n < groups.length; n++) {
+    if (!best || groups[n].count > best.count) {
+      best = groups[n];
+      tie = false;
+    } else if (groups[n].count === best.count) {
+      tie = true;
+    }
+  }
+  return { groups: groups, defaultK: best ? best.k : null, tie: tie };
 }
 
-/** 單棵樹的歷年量測 {at, height, girth},由舊到新,最多最近 MAX_HISTORY_POINTS 筆。同樣不含個資。 */
-function historyRows(rows, treeId) {
-  var points = [];
-  for (var i = 0; i < rows.length; i++) {
-    var m = parseMeasurementRow(rows[i]);
-    if (m && m.no === treeId) {
-      points.push({ at: m.at, height: m.height, girth: m.girth });
+/** 讀「核可紀錄」。分頁不存在回空陣列 —— 公開端點絕不建立分頁。 */
+function readApprovals() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_APPROVALS);
+  if (!sheet) {
+    return [];
+  }
+  var rows = sheet.getDataRange().getValues();
+  var out = [];
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i];
+    out.push({
+      row: i + 1,
+      id: cellText(r[0]),
+      no: treeIdOf(r[1]),
+      measuredAt: toIso(r[2]),
+      approvedAt: toIso(r[3]),
+      height: Number(r[5]),
+      n: Number(r[7]),
+      girth: r[8] === '' || r[8] === null || r[8] === undefined ? null : Number(r[8]),
+      valid: cellText(r[11]) === APPROVAL_VALID,
+    });
+  }
+  return out;
+}
+
+function validApprovalIds(approvals) {
+  var ids = Object.create(null);
+  for (var i = 0; i < approvals.length; i++) {
+    if (approvals[i].valid && approvals[i].id !== '') {
+      ids[approvals[i].id] = true;
     }
   }
-  points.sort(function (a, b) {
-    return a.at < b.at ? -1 : a.at > b.at ? 1 : 0;
+  return ids;
+}
+
+function isPending(m, validIds) {
+  return !(m.aid !== '' && validIds[m.aid] === true);
+}
+
+/**
+ * 公開摘要:trees 只列「有有效核可」的樹(舊版 App 讀到的 height 一定是數字),取量測日最新的核可;
+ * pending 另列待核可筆數。**刻意不回傳姓名/學號/老師信箱**,這份摘要是公開的。
+ */
+function summarizeRows(rows, approvals) {
+  // 樹號由學生送出,可能是 __proto__、constructor 這類特殊鍵:一定要用「沒有原型」的物件當 map。
+  var best = Object.create(null);
+  var order = [];
+  for (var i = 0; i < approvals.length; i++) {
+    var a = approvals[i];
+    if (!a.valid || a.no === '') {
+      continue;
+    }
+    var cur = best[a.no];
+    if (!cur) {
+      order.push(a.no);
+    }
+    if (!cur || a.measuredAt > cur.measuredAt || (a.measuredAt === cur.measuredAt && a.approvedAt > cur.approvedAt)) {
+      best[a.no] = a;
+    }
+  }
+  var trees = order.map(function (no) {
+    var b = best[no];
+    return { no: no, height: b.height, girth: b.girth, at: b.measuredAt, n: b.n };
+  });
+
+  var validIds = validApprovalIds(approvals);
+  var counts = Object.create(null);
+  var pendingOrder = [];
+  for (var j = 0; j < rows.length; j++) {
+    var m = parseMeasurementRow(rows[j]);
+    if (!m || !isPending(m, validIds)) {
+      continue;
+    }
+    if (!counts[m.no]) {
+      counts[m.no] = 0;
+      pendingOrder.push(m.no);
+    }
+    counts[m.no] += 1;
+  }
+  var pending = pendingOrder.map(function (no) {
+    return { no: no, count: counts[no] };
+  });
+  return { trees: trees, pending: pending };
+}
+
+/** 單棵樹的歷年核可 {at(量測日), height, girth, n},由舊到新,最多最近 MAX_HISTORY_POINTS 點。不含個資。 */
+function historyRows(approvals, treeId) {
+  var points = [];
+  for (var i = 0; i < approvals.length; i++) {
+    var a = approvals[i];
+    if (a.valid && a.no === treeId) {
+      points.push({ at: a.measuredAt, height: a.height, girth: a.girth, n: a.n });
+    }
+  }
+  points.sort(function (x, y) {
+    return x.at < y.at ? -1 : x.at > y.at ? 1 : 0;
   });
   return points.slice(-MAX_HISTORY_POINTS);
 }
@@ -904,13 +1068,14 @@ function recordRows() {
 
 function summaryOutput() {
   return cachedJson(SUMMARY_CACHE_KEY, function () {
-    return { status: 'ok', generatedAt: nowIso(), trees: summarizeRows(recordRows()) };
+    var s = summarizeRows(recordRows(), readApprovals());
+    return { status: 'ok', generatedAt: nowIso(), trees: s.trees, pending: s.pending };
   });
 }
 
 function historyOutput(treeId) {
   return cachedJson(HISTORY_CACHE_PREFIX + treeId, function () {
-    return { status: 'ok', treeId: treeId, points: historyRows(recordRows(), treeId) };
+    return { status: 'ok', treeId: treeId, points: historyRows(readApprovals(), treeId) };
   });
 }
 
@@ -923,6 +1088,229 @@ function invalidateCachesFor(treeId) {
   } catch (err) {
     // 清不掉最多讓畫面晚 5 分鐘看到新資料,不能因此讓寫入失敗。
   }
+}
+
+// ---------------------------------------------------------------------------
+// 量測核可(老師專用)
+// 待核可 = 第 11 欄空白或對不到「有效」核可。核可:先標第 11 欄,最後寫核可紀錄(commit);
+// 中途失敗時編號對不到有效核可,那批自動仍是待核可,不會消失也不會重複。撤銷只改狀態。
+// ---------------------------------------------------------------------------
+
+var APPROVAL_WIDTHS = [10, 50, 100]; // 樹高:公分;樹圍:公釐(= 0.1/0.5/1 m、1/5/10 cm)
+
+function recordsSheet() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RECORDS);
+}
+
+/** 用戶端紀錄編號 + 樹高 + 樹圍:不含個資,老師畫面看到的那批可原樣比對。 */
+function measurementKey(m) {
+  return m.rid + '|' + m.height + '|' + (m.girth === null ? '' : m.girth);
+}
+
+/** 該樹所有待核可的有效量測,附 1-based 列號與 key。 */
+function pendingFor(treeId, approvals) {
+  var validIds = validApprovalIds(approvals);
+  var rows = recordsSheet().getDataRange().getValues();
+  var out = [];
+  for (var i = 1; i < rows.length; i++) {
+    var m = parseMeasurementRow(rows[i]);
+    if (m && m.no === treeId && isPending(m, validIds)) {
+      m.row = i + 1;
+      m.key = measurementKey(m);
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/** 該樹最新的有效核可;同時間時列在後面的較新(同一毫秒連續核可也分得出先後)。 */
+function latestValidApproval(approvals, treeId) {
+  var best = null;
+  for (var i = 0; i < approvals.length; i++) {
+    var a = approvals[i];
+    if (a.valid && a.no === treeId && (!best || a.approvedAt >= best.approvedAt)) {
+      best = a;
+    }
+  }
+  return best;
+}
+
+function sameKeys(current, sent) {
+  if (!Array.isArray(sent) || current.length !== sent.length) {
+    return false;
+  }
+  var x = current.slice().sort();
+  var y = sent.map(String).sort();
+  for (var i = 0; i < x.length; i++) {
+    if (x[i] !== y[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function pickGroup(result, k) {
+  for (var i = 0; i < result.groups.length; i++) {
+    if (result.groups[i].k === k) {
+      return result.groups[i];
+    }
+  }
+  return null;
+}
+
+function approvalLabel(g, unit, decimals) {
+  return g.lo.toFixed(decimals) + '–' + g.hi.toFixed(decimals) + ' ' + unit;
+}
+
+function approvalBatch(data) {
+  var treeId = treeIdOf(data.treeId);
+  if (treeId === '') {
+    return errorOutput('VALIDATION_FAILED', '缺少樹號');
+  }
+  var approvals = readApprovals();
+  var last = latestValidApproval(approvals, treeId);
+  return jsonOutput({
+    status: 'ok',
+    treeId: treeId,
+    records: pendingFor(treeId, approvals).map(function (m) {
+      return { key: m.key, classNo: m.classNo, at: m.at, height: m.height, girth: m.girth };
+    }),
+    last: last ? { id: last.id, at: last.measuredAt, height: last.height, girth: last.girth } : null,
+  });
+}
+
+function approvalApprove(data, email) {
+  var treeId = treeIdOf(data.treeId);
+  var bad = errorOutput('VALIDATION_FAILED', '組距或組別不正確,請重新整理');
+  if (treeId === '' || APPROVAL_WIDTHS.indexOf(data.heightWidth) < 0 || !Number.isInteger(data.heightK)) {
+    return bad;
+  }
+  var noGirth = data.girthK === null || data.girthK === undefined;
+  if (!noGirth && (APPROVAL_WIDTHS.indexOf(data.girthWidth) < 0 || !Number.isInteger(data.girthK))) {
+    return bad;
+  }
+
+  var id = Utilities.getUuid();
+  var h;
+  var g = null;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = recordsSheet();
+    var batch = pendingFor(treeId, readApprovals());
+    if (!sameKeys(batch.map(function (m) { return m.key; }), data.keys)) {
+      return errorOutput('BATCH_CHANGED', '有新的量測或別的老師剛處理過,已重新載入');
+    }
+    h = pickGroup(groupValues(batch, 'height', 100, data.heightWidth), data.heightK);
+    if (!h || !(h.mean > 0) || !isFinite(h.mean)) {
+      return bad;
+    }
+    if (noGirth) {
+      if (groupValues(batch, 'girth', 10, 100).groups.length > 0) {
+        return bad; // 有樹圍資料就必須選一組
+      }
+    } else {
+      g = pickGroup(groupValues(batch, 'girth', 10, data.girthWidth), data.girthK);
+      if (!g || !(g.mean > 0) || !isFinite(g.mean)) {
+        return bad;
+      }
+    }
+
+    // 1. 標記第 11 欄:涵蓋這批的列範圍整段讀一次、寫一次(逐列讀寫會讓大批量測逾時)。
+    //    範圍內別棵樹的列原值寫回;寫前確認第 10 欄沒被人手動改動或排序。
+    if (sheet.getMaxColumns() < COLUMN_APPROVAL_ID) {
+      sheet.insertColumnsAfter(COLUMN_APPROVAL_ID - 1, 1);
+    }
+    sheet.getRange(1, COLUMN_APPROVAL_ID).setValue('核可編號');
+    var first = batch[0].row;
+    var span = batch[batch.length - 1].row - first + 1;
+    var block = sheet.getRange(first, COLUMN_CLIENT_RECORD_ID, span, 2).getValues(); // 第 10、11 欄
+    var marks = block.map(function (r) {
+      return [r[1] === undefined || r[1] === null ? '' : r[1]];
+    });
+    for (var i = 0; i < batch.length; i++) {
+      var offset = batch[i].row - first;
+      if (cellText(block[offset][0]) !== batch[i].rid) {
+        return errorOutput('BATCH_CHANGED', '試算表剛被改動,已重新載入');
+      }
+      marks[offset][0] = id;
+    }
+    sheet.getRange(first, COLUMN_APPROVAL_ID, span, 1).setValues(marks);
+
+    // 2. commit:寫入核可紀錄這一列,核可才生效
+    var ap = getOrCreateSheet(SHEET_NAME_APPROVALS, APPROVAL_HEADER);
+    var newRow = ap.getLastRow() + 1;
+    ap.getRange(newRow, 1, 1, APPROVAL_HEADER.length).setNumberFormat('@');
+    ap.getRange(newRow, 1, 1, APPROVAL_HEADER.length).setValues([[
+      id, sanitizeCellText(treeId), h.latestAt, nowIso(), sanitizeCellText(email),
+      h.mean, approvalLabel(h, 'm', 1), h.count,
+      g ? g.mean : '', g ? approvalLabel(g, 'cm', 0) : '', g ? g.count : '',
+      APPROVAL_VALID, '',
+    ]]);
+  } finally {
+    lock.releaseLock();
+  }
+  invalidateCachesFor(treeId);
+  return jsonOutput({ status: 'ok', id: id, height: h.mean, girth: g ? g.mean : null, heightN: h.count, girthN: g ? g.count : 0 });
+}
+
+function approvalUndo(data, email) {
+  var treeId = treeIdOf(data.treeId);
+  var id = cellText(data.id);
+  if (treeId === '' || id === '') {
+    return errorOutput('VALIDATION_FAILED', '缺少樹號或核可編號');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var approvals = readApprovals();
+    var target = null;
+    for (var i = 0; i < approvals.length; i++) {
+      if (approvals[i].id === id && approvals[i].no === treeId) {
+        target = approvals[i];
+      }
+    }
+    if (!target) {
+      return errorOutput('VALIDATION_FAILED', '找不到這次核可');
+    }
+    if (!target.valid) {
+      return jsonOutput({ status: 'ok', id: id, duplicate: true });
+    }
+    if (latestValidApproval(approvals, treeId).id !== id) {
+      return errorOutput('BATCH_CHANGED', '這棵樹剛有新的核可,已重新載入');
+    }
+    SpreadsheetApp.getActiveSpreadsheet()
+      .getSheetByName(SHEET_NAME_APPROVALS)
+      .getRange(target.row, 12, 1, 2)
+      .setValues([['已撤銷 by ' + sanitizeCellText(email), nowIso()]]);
+  } finally {
+    lock.releaseLock();
+  }
+  invalidateCachesFor(treeId);
+  return jsonOutput({ status: 'ok', id: id });
+}
+
+/** 完整量測紀錄(含姓名、學號):只給教師名單內的老師匯出 Excel 用。 */
+function recordsExport() {
+  var validIds = validApprovalIds(readApprovals());
+  var rows = recordsSheet().getDataRange().getValues();
+  var out = [];
+  for (var i = 1; i < rows.length; i++) {
+    var m = parseMeasurementRow(rows[i]);
+    if (!m) {
+      continue;
+    }
+    out.push({
+      treeId: m.no,
+      at: m.at,
+      name: cellText(rows[i][2]),
+      classNo: m.classNo,
+      height: m.height,
+      girth: m.girth,
+      approved: !isPending(m, validIds),
+    });
+  }
+  return jsonOutput({ status: 'ok', rows: out });
 }
 
 // ---------------------------------------------------------------------------

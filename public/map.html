@@ -63,6 +63,9 @@
   <script type="module">
     import { filterBySpecies, speciesSummary, treesInBounds } from '../src/treeData.js';
     import { colorForHeight, heightBands, matchSummary, NO_DATA_COLOR } from '../src/heightColors.js';
+    // 與 heightColors.js 的 PENDING_COLOR 相同。不從那裡匯入:本頁不在離線快取,更新過渡期
+    // Service Worker 可能還在供應舊版 heightColors.js,匯入新名稱會讓整頁載入失敗。
+    const PENDING_COLOR = '#f57c00';
     import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
     import { requireTeacher } from '../src/teacherGate.js';
     import { applyEmbedMode, isEmbedded } from '../src/embed.js';
@@ -107,7 +110,8 @@
 
     let trees = [];
     let visible = [];
-    let measurements = new Map();
+    let measurements = new Map(); // 已核可:樹號 → 核可值
+    let pendingByNo = new Map(); // 待核可:樹號 → 筆數
     let colorMode = 'posted';
     const markers = new Map();
     const markerLayer = L.layerGroup();
@@ -118,14 +122,14 @@
     function updateStats() {
       const total = trees.length;
       statsEl.textContent =
-        `共 ${total} 棵(顯示 ${visible.length})· 已量測 ${measurements.size} · 已貼牌 ${posted.size} · 列印清單 ${printList.size}`;
+        `共 ${total} 棵(顯示 ${visible.length})· 已核可 ${measurements.size} · 待核可 ${pendingByNo.size} · 已貼牌 ${posted.size} · 列印清單 ${printList.size}`;
     }
 
     function renderLegend() {
       const legend = document.getElementById('legend');
       legend.textContent = '';
       const items = colorMode === 'height'
-        ? [{ color: NO_DATA_COLOR, label: '未量測' }, ...heightBands()]
+        ? [{ color: NO_DATA_COLOR, label: '未量測' }, { color: PENDING_COLOR, label: '待核可' }, ...heightBands()]
         : [{ color: '#9e9e9e', label: '未貼牌' }, { color: '#2e7d32', label: '已貼牌' }];
       for (const item of items) {
         const wrap = document.createElement('span');
@@ -149,7 +153,8 @@
     function fillFor(no) {
       if (colorMode === 'height') {
         const m = measurements.get(no);
-        return colorForHeight(m ? m.height : null);
+        if (m) return colorForHeight(m.height);
+        return pendingByNo.has(no) ? PENDING_COLOR : NO_DATA_COLOR;
       }
       return posted.has(no) ? '#2e7d32' : '#9e9e9e';
     }
@@ -219,13 +224,20 @@
       const m = measurements.get(tree.no);
       const measure = document.createElement('div');
       measure.style.margin = '6px 0';
+      const waiting = pendingByNo.get(tree.no);
       if (m) {
         const girth = m.girth ? `、樹圍 ${m.girth} cm` : '';
         const date = String(m.at).slice(0, 10);
-        measure.textContent = `最新量測:樹高 ${m.height} m${girth}(${date},共 ${m.n} 筆)`;
-      } else {
+        measure.textContent = `核可樹高 ${m.height} m${girth}(${date} 量測,${m.n} 人平均)`;
+      } else if (!waiting) {
         measure.textContent = '尚無量測資料';
         measure.style.color = '#777';
+      }
+      if (waiting) {
+        const note = document.createElement('div');
+        note.style.color = PENDING_COLOR;
+        note.textContent = m ? `另有 ${waiting} 筆待核可` : `有 ${waiting} 筆量測,待老師核可`;
+        measure.append(note);
       }
 
       box.append(title, species, measure, listBtn, postedBtn, link);
@@ -358,11 +370,12 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = await res.json();
         if (body.status !== 'ok') throw new Error(body.error || '後端回應異常');
-        const { byNo, measured, ignored } = matchSummary(trees, body.trees);
+        const { byNo, measured, ignored, pendingByNo: waiting } = matchSummary(trees, body.trees, body.pending);
         measurements = byNo;
+        pendingByNo = waiting || new Map(); // 舊版 heightColors.js 沒有 pendingByNo
         refreshAllStyles();
         const ignoredNote = ignored > 0 ? `(另有 ${ignored} 棵的量測對不到官方樹號,已略過)` : '';
-        say(`已載入 ${measured} 棵樹的量測值${ignoredNote}。資料更新時間 ${String(body.generatedAt).slice(0, 19).replace('T', ' ')} UTC`);
+        say(`已載入 ${measured} 棵已核可、${pendingByNo.size} 棵待核可的樹${ignoredNote}。資料更新時間 ${String(body.generatedAt).slice(0, 19).replace('T', ' ')} UTC`);
       } catch (err) {
         say(`載入量測值失敗(地圖仍可使用):${err.message}`, true);
       } finally {
@@ -377,7 +390,7 @@
       colorMode = e.target.value;
       renderLegend();
       refreshAllStyles();
-      if (colorMode === 'height' && measurements.size === 0) loadSummary();
+      if (colorMode === 'height' && measurements.size === 0 && pendingByNo.size === 0) loadSummary();
     });
 
     speciesSelect.addEventListener('change', () => {

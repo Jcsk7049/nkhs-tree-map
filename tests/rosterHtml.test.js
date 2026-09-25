@@ -20,3 +20,20 @@ describe('roster.html 鎖定顯示與解除(原始碼層級檢查)', () => {
     expect(html).toContain('重設通行碼');
   });
 });
+
+describe('roster.html 處理中動畫', () => {
+  it('有轉圈動畫樣式(尊重「減少動態效果」設定)', () => {
+    expect(html).toMatch(/@keyframes spin/);
+    expect(html).toMatch(/#message\.busy::before/);
+    expect(html).toMatch(/prefers-reduced-motion/);
+  });
+  it('guarded 處理期間顯示忙碌訊息並停用按鈕,結束後恢復', () => {
+    expect(html).toMatch(/async function guarded\(action, busyText = '處理中…'\)/);
+    expect(html).toMatch(/say\(busyText, 'busy'\)/);
+    expect(html).toMatch(/b\.disabled = true/);
+    expect(html).toMatch(/b\.disabled = false/);
+  });
+  it('匯入名單時顯示「匯入中」', () => {
+    expect(html).toMatch(/guarded\(async \(\) => \{[\s\S]*?roster-import[\s\S]*?\}, '匯入中/);
+  });
+});

@@ -23,12 +23,16 @@
     #message { min-height: 1.4em; margin: 8px 0; font-size: 14px; }
     #message.error { color: #c62828; }
     #message.ok { color: #2e7d32; }
+    #message.busy { color: #555; }
+    #message.busy::before { content: ''; display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; border: 2px solid #c8e6c9; border-top-color: #2e7d32; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { #message.busy::before { animation-duration: 2.4s; } }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e0e0e0; }
-    #roster-body td:nth-child(2), #roster-body td:nth-child(3), #roster-body td:nth-child(4) { white-space: nowrap; }
+    #roster-body td:nth-child(2), #roster-body td:nth-child(3), #roster-body td:nth-child(4), #roster-body td:nth-child(5) { white-space: nowrap; }
     .check-all-text { display: none; }
     @media (max-width: 600px) {
-      /* 手機:每位學生一張卡片。第一行 勾選框+座號+姓名+狀態,第二行 操作按鈕 */
+      /* 手機:每位學生一張卡片。第一行 勾選框+學號+科別班級座號+姓名+狀態(放不下自動換行),最後一行 操作按鈕 */
       table, tbody { display: block; width: 100%; }
       thead { display: block; }
       thead tr { display: flex; align-items: center; border-bottom: 1px solid #e0e0e0; }
@@ -75,8 +79,8 @@
 
     <section class="no-print">
       <h2>1. 貼上學生名單</h2>
-      <p class="hint">每行一位:「班級座號 姓名」,可直接從試算表複製貼上(Tab)或用逗號、空白分隔。已在名單裡的座號只會更新姓名,不會重發通行碼。</p>
-      <textarea id="paste" placeholder="301-01&#9;王小明&#10;301-02&#9;李小華"></textarea>
+      <p class="hint">每行一位:「學號 姓名」(學號 8 碼,例 11205071),可直接從試算表複製貼上(Tab)或用逗號、空白分隔。已在名單裡的學號只會更新姓名,不會重發通行碼。</p>
+      <textarea id="paste" placeholder="11205001&#9;王小明&#10;11205002&#9;李小華"></textarea>
       <button type="button" class="primary" id="import">匯入名單並產生通行碼</button>
     </section>
 
@@ -88,7 +92,7 @@
       <button type="button" id="reset-selected" disabled>重設勾選者的通行碼</button>
       <span id="selected-count" class="hint"></span>
       <table>
-        <thead><tr><th><label class="check-all-label"><input type="checkbox" id="check-all" aria-label="全選" /><span class="check-all-text">全選</span></label></th><th>班級座號</th><th>姓名</th><th>狀態</th><th>操作</th></tr></thead>
+        <thead><tr><th><label class="check-all-label"><input type="checkbox" id="check-all" aria-label="全選" /><span class="check-all-text">全選</span></label></th><th>學號</th><th>科別班級座號</th><th>姓名</th><th>狀態</th><th>操作</th></tr></thead>
         <tbody id="roster-body"></tbody>
       </table>
     </section>
@@ -109,6 +113,7 @@
     import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
     import { requireTeacher } from '../src/teacherGate.js';
     import { parseRosterText } from '../src/roster.js';
+    import { parseStudentId } from '../src/studentId.js';
 
     applyEmbedMode(document, window.location.search);
 
@@ -138,9 +143,9 @@
         const parts = [
           ['school', '南港高工 校園樹木量測'],
           ['name', slip.name],
-          ['cls', `班級座號 ${slip.classNo}`],
+          ['cls', `學號 ${slip.classNo}　${parseStudentId(slip.classNo)?.label || ''}`],
           ['code', slip.code],
-          ['how', '掃樹上的 QRCode → 輸入班級座號與這組通行碼。請勿轉給別人。'],
+          ['how', '掃樹上的 QRCode → 輸入學號與這組通行碼。請勿轉給別人。'],
         ];
         for (const [cls, text] of parts) {
           const div = document.createElement('div');
@@ -168,11 +173,19 @@
       resetSelectedBtn.disabled = count === 0;
     }
 
-    async function guarded(action) {
+    /** 連後端的操作:處理中顯示轉圈訊息並停用按鈕(防連點),結束後恢復。 */
+    async function guarded(action, busyText = '處理中…') {
+      const buttons = [...document.querySelectorAll('main button')];
+      buttons.forEach((b) => { b.disabled = true; });
+      say(busyText, 'busy');
       try {
         await action();
+        if (messageEl.classList.contains('busy')) say('');
       } catch (err) {
         say(err.message || '操作失敗,請再試一次', 'error');
+      } finally {
+        buttons.forEach((b) => { b.disabled = false; });
+        refreshSelection();
       }
     }
 
@@ -183,7 +196,7 @@
       if (students.length === 0) {
         const tr = bodyEl.insertRow();
         const td = tr.insertCell();
-        td.colSpan = 5;
+        td.colSpan = 6;
         td.textContent = '名單還是空的,請先在上面貼上學生名單。';
         refreshSelection();
         return;
@@ -195,6 +208,7 @@
         box.dataset.classNo = student.classNo;
         tr.insertCell().append(box);
         tr.insertCell().textContent = student.classNo;
+        tr.insertCell().textContent = parseStudentId(student.classNo)?.label || '(學號格式不對)';
         tr.insertCell().textContent = student.name;
         const statusCell = tr.insertCell();
         statusCell.textContent = student.status;
@@ -257,9 +271,9 @@
       say(notes.join(',') + (result.created.length > 0 ? '。新通行碼在下方,請立刻列印。' : '。'), problems.length > 0 ? 'error' : 'ok');
       document.getElementById('paste').value = '';
       await loadRoster();
-    }));
+    }, '匯入中…每位同學約 0.5 秒,請稍候'));
 
-    document.getElementById('reload').addEventListener('click', () => guarded(loadRoster));
+    document.getElementById('reload').addEventListener('click', () => guarded(loadRoster, '載入名單中…'));
 
     resetSelectedBtn.addEventListener('click', () => guarded(() => resetCodes(selectedClassNos())));
 
@@ -295,7 +309,7 @@
       }
     });
 
-    await guarded(loadRoster);
+    await guarded(loadRoster, '載入名單中…');
   </script>
 </body>
 </html>

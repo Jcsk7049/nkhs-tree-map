@@ -26,8 +26,9 @@
   <h1 id="tree-title">樹木量測登記</h1>
 
   <form id="measurement-form" autocomplete="off">
-    <label>班級座號 <span class="hint">(例:301-12)</span>
-      <input type="text" id="studentClassNo" required />
+    <label>學號 <span class="hint">(8 碼,例:11205071)</span>
+      <input type="text" id="studentClassNo" inputmode="numeric" required />
+      <span class="hint" id="student-id-hint" aria-live="polite"></span>
     </label>
     <label>通行碼 <span class="hint">(老師發給你的 7 碼,例:K7M-2QX-4)</span>
       <input type="text" id="studentCode" autocapitalize="characters" autocorrect="off" spellcheck="false" required />
@@ -51,7 +52,8 @@
     import { buildMeasurementRecord, getTreeIdFromUrl } from '../src/treePage.js';
     import { listPending } from '../src/offlineQueue.js';
     import { fetchHistory, renderHistory } from '../src/trendView.js';
-    import { isValidCodeFormat, normalizeClassNo, normalizeCode } from '../src/studentCode.js';
+    import { isValidCodeFormat, normalizeCode } from '../src/studentCode.js';
+    import { parseStudentId } from '../src/studentId.js';
     import { API_URL } from '../src/config.js';
 
     /** 佔位字串一律以 PASTE_ 開頭;用前綴判斷,才不會被「整份取代佔位字串」的操作誤判成已設定。 */
@@ -66,6 +68,15 @@
     const bannerEl = document.getElementById('banner');
     const classNoInput = document.getElementById('studentClassNo');
     const codeInput = document.getElementById('studentCode');
+    const studentIdHint = document.getElementById('student-id-hint');
+
+    /** 打學號時即時顯示「112 級 土木科 忠班 71 號」,讓學生當場發現打錯。 */
+    function refreshStudentIdHint() {
+      const raw = classNoInput.value.trim();
+      const parsed = parseStudentId(raw);
+      studentIdHint.textContent = raw === '' ? '' : parsed ? parsed.label : '學號格式不對(8 碼數字,例:11205071)';
+    }
+    classNoInput.addEventListener('input', refreshStudentIdHint);
 
     function showBanner(message) {
       bannerEl.textContent = message;
@@ -125,6 +136,7 @@
     } catch (err) {
       // 無痕模式讀不到就算了,只是少一個預填。
     }
+    refreshStudentIdHint();
 
     if ('serviceWorker' in navigator) {
       // 註冊失敗(舊瀏覽器、無痕模式、非安全內容)只代表沒有離線能力,線上功能照常;
@@ -184,10 +196,10 @@
     /** 後端拒絕時給學生看的白話說明。 */
     function explainRejection(code, error) {
       if (code === 'STUDENT_REJECTED') {
-        return '班級座號或通行碼不對,或這位同學已被停用。請對照老師發的紙條再試一次,還是不行就找老師。';
+        return '學號或通行碼不對,或這位同學已被停用。請對照老師發的紙條再試一次,還是不行就找老師。';
       }
       if (code === 'STUDENT_LOCKED') {
-        return '這個班級座號輸入錯誤太多次,已暫時鎖定。請 5 分鐘後再試,或請老師重設通行碼。';
+        return '這個學號輸入錯誤太多次,已暫時鎖定。請 5 分鐘後再試,或請老師重設通行碼。';
       }
       return `伺服器拒絕了這筆資料:${error || '原因不明'},請確認輸入後重新送出`;
     }
@@ -210,7 +222,7 @@
 
       // required 擋不掉整串空白;通行碼的檢查碼讓學生「打錯字」時離線也能立刻發現。
       const textErrors = [];
-      if (!normalizeClassNo(formValues.studentClassNo)) textErrors.push('請填寫班級座號');
+      if (!parseStudentId(formValues.studentClassNo)) textErrors.push('請填寫正確的學號(8 碼數字,例:11205071)');
       if (!normalizeCode(formValues.studentCode)) {
         textErrors.push('請填寫通行碼');
       } else if (!isValidCodeFormat(normalizeCode(formValues.studentCode))) {
@@ -239,7 +251,7 @@
         if (status === 'sent') {
           hideBanner();
           const who = studentName ? `(填寫人:${studentName})` : '';
-          showResult(`送出成功!計算樹高:${record.calculatedHeight} 公尺${who}`);
+          showResult(`送出成功!計算樹高:${record.calculatedHeight} 公尺${who}。老師核可後會出現在歷年趨勢圖。`);
           codeInput.value = ''; // 共用平板:通行碼不留在畫面上
           loadHistory();
         } else if (status === 'queued') {

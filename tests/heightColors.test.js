@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { colorForHeight, heightBands, matchSummary, NO_DATA_COLOR } from '../src/heightColors.js';
+import { colorForHeight, heightBands, matchSummary, NO_DATA_COLOR, PENDING_COLOR } from '../src/heightColors.js';
 
 describe('colorForHeight', () => {
   const bands = heightBands();
@@ -71,5 +71,15 @@ describe('matchSummary', () => {
   it('摘要不是陣列或為空時安全回傳零筆', () => {
     expect(matchSummary(trees, undefined).measured).toBe(0);
     expect(matchSummary(trees, []).measured).toBe(0);
+  });
+
+  it('pending 只收官方樹號(型別不同也對得上),回傳 pendingByNo', () => {
+    const { pendingByNo } = matchSummary(trees, [], [{ no: '43667', count: 3 }, { no: 'A-023', count: 2 }, { no: 43020, count: 1 }]);
+    expect([...pendingByNo]).toEqual([['43667', 3], ['43020', 1]]);
+  });
+
+  it('沒給 pending 時為空 Map;待核可用與藍色系不同的橘色', () => {
+    expect(matchSummary(trees, []).pendingByNo.size).toBe(0);
+    expect(PENDING_COLOR).toBe('#f57c00');
   });
 });

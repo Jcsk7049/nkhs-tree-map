@@ -3,8 +3,9 @@ import { describe, it, expect } from 'vitest';
 import { STUDENT_TABS, TEACHER_TABS, tabsFor, parseHash, frameSrc, buildHash } from '../src/appShell.js';
 
 describe('tabsFor', () => {
-  it('老師四個分頁:名單/地圖/QR 標籤/管理', () => {
-    expect(TEACHER_TABS.map((t) => t.id)).toEqual(['roster', 'map', 'labels', 'admin']);
+  it('老師五個分頁:名單/地圖/QR 標籤/核可/管理', () => {
+    expect(TEACHER_TABS.map((t) => t.id)).toEqual(['roster', 'map', 'labels', 'approve', 'admin']);
+    expect(TEACHER_TABS.find((t) => t.id === 'approve')).toEqual({ id: 'approve', label: '核可', page: 'approve.html' });
     expect(tabsFor('teacher')).toBe(TEACHER_TABS);
   });
   it('學生三個分頁:樹木/掃描/量測', () => {

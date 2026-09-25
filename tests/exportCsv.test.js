@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { csvEscape, formatTaiwanTime, buildTreeCsv, csvFilename, buildTreeRows, buildTreeXlsx } from '../src/exportCsv.js';
+import {
+  csvEscape, formatTaiwanTime, buildTreeCsv, csvFilename, buildTreeRows, buildTreeXlsx,
+  buildRecordsRows, buildRecordsXlsx, recordsXlsxFilename,
+} from '../src/exportCsv.js';
 
 describe('csvEscape', () => {
   it('一般字串與數字原樣,null/undefined 為空字串', () => {
@@ -45,7 +48,7 @@ describe('buildTreeCsv', () => {
 
   it('開頭有 BOM 與標題列,行以 CRLF 結尾', () => {
     const csv = buildTreeCsv(trees, byNo);
-    expect(csv.startsWith('﻿官方樹號,樹種,最新樹高(m),樹圍(cm),量測時間(台灣),量測筆數\r\n')).toBe(true);
+    expect(csv.startsWith('﻿官方樹號,樹種,核可樹高(m),樹圍(cm),量測日(台灣),採用人數\r\n')).toBe(true);
     expect(csv.endsWith('\r\n')).toBe(true);
   });
   it('預設只輸出有量測的樹,依樹號數字排序(3 在 10 前)', () => {
@@ -61,7 +64,7 @@ describe('buildTreeCsv', () => {
   });
   it('沒有任何量測時仍輸出標題列', () => {
     const csv = buildTreeCsv(trees, new Map());
-    expect(csv).toBe('﻿官方樹號,樹種,最新樹高(m),樹圍(cm),量測時間(台灣),量測筆數\r\n');
+    expect(csv).toBe('﻿官方樹號,樹種,核可樹高(m),樹圍(cm),量測日(台灣),採用人數\r\n');
   });
   it('不修改輸入', () => {
     const copy = JSON.parse(JSON.stringify(trees));
@@ -84,7 +87,7 @@ describe('buildTreeRows', () => {
   ]);
   it('第一列標題;預設只含有量測的樹,依樹號數字排序,數字保持數字', () => {
     const rows = buildTreeRows(trees, byNo);
-    expect(rows[0]).toEqual(['官方樹號', '樹種', '最新樹高(m)', '樹圍(cm)', '量測時間(台灣)', '量測筆數']);
+    expect(rows[0]).toEqual(['官方樹號', '樹種', '核可樹高(m)', '樹圍(cm)', '量測日(台灣)', '採用人數']);
     expect(rows[1]).toEqual(['3', '楓香,特別', 2.34, null, '2026-09-01 10:00', 1]);
     expect(rows[2]).toEqual(['10', '榕樹', 12.5, 80, '2026-09-20 00:30', 3]);
     expect(rows).toHaveLength(3);
@@ -95,6 +98,24 @@ describe('buildTreeRows', () => {
     expect(rows[1]).toEqual(['2', '樟樹', null, null, null, null]);
     expect(rows).toHaveLength(4);
     expect(trees).toEqual(copy);
+  });
+});
+
+describe('buildRecordsRows(完整量測紀錄,老師專用)', () => {
+  it('學號拆成入學年/科別/班級/座號;核可狀態文字;時間轉台灣', () => {
+    const rows = buildRecordsRows([
+      { treeId: '43667', at: '2026-09-19T16:30:00.000Z', name: '王小明', classNo: '11205071', height: 12.3, girth: 80, approved: true },
+      { treeId: '43020', at: '2026-09-20T01:00:00.000Z', name: '舊資料', classNo: '301-12', height: 5, girth: null, approved: false },
+    ]);
+    expect(rows[0]).toEqual(['樹號', '量測時間(台灣)', '姓名', '學號', '入學年', '科別', '班級', '座號', '樹高(m)', '樹圍(cm)', '核可狀態']);
+    expect(rows[1]).toEqual(['43667', '2026-09-20 00:30', '王小明', '11205071', '112', '土木科', '忠班', '71', 12.3, 80, '已核可']);
+    expect(rows[2]).toEqual(['43020', '2026-09-20 09:00', '舊資料', '301-12', '', '', '', '', 5, null, '待核可']);
+  });
+  it('recordsXlsxFilename 用台灣日期;buildRecordsXlsx 是 zip', () => {
+    expect(recordsXlsxFilename(Date.parse('2026-09-19T20:00:00Z'))).toBe('nkhs-records-20260920.xlsx');
+    const bytes = buildRecordsXlsx([]);
+    expect(bytes[0]).toBe(0x50);
+    expect(bytes[1]).toBe(0x4b);
   });
 });
 

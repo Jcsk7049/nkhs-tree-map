@@ -23,6 +23,7 @@ export const CACHE_FILES = [
   '../src/submit.js',
   '../src/treePage.js',
   '../src/studentCode.js',
+  '../src/studentId.js',
   '../src/config.js',
   '../src/trend.js',
   '../src/trendView.js',

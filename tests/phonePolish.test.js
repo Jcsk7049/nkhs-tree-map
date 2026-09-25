@@ -67,8 +67,16 @@ describe('③新版本提示橫幅', () => {
   });
 });
 
+describe('底部導覽:老師 6 個按鈕在 375px 手機不換行', () => {
+  it('#tabbar 按鈕不換行,窄螢幕縮小字級', () => {
+    const html = read('public/app.html');
+    expect(html).toMatch(/#tabbar button \{[^}]*white-space: nowrap/);
+    expect(html).toMatch(/@media \(max-width: 400px\) \{ #tabbar button \{ font-size: 13px; padding: 12px 2px; \} \}/);
+  });
+});
+
 describe('④老師閘門不再閃現空白卡片', () => {
-  const pages = ['teacher.html', 'roster.html', 'map.html', 'qrcodes.html', 'admin.html'];
+  const pages = ['teacher.html', 'roster.html', 'map.html', 'qrcodes.html', 'admin.html', 'approve.html'];
   for (const page of pages) {
     it(`${page} 的閘門初始文字是「載入中…」`, () => {
       expect(read(`public/${page}`)).toMatch(/<p id="gate-status">載入中…<\/p>/);
@@ -84,7 +92,7 @@ describe('④老師閘門不再閃現空白卡片', () => {
 });
 
 describe('快取版本', () => {
-  it('sw.js 為 v18,且 CACHE_FILES 未變動內容以外的結構', () => {
-    expect(read('public/sw.js')).toMatch(/CACHE_NAME = 'tree-map-v18'/);
+  it('sw.js 為 v20,且 CACHE_FILES 未變動內容以外的結構', () => {
+    expect(read('public/sw.js')).toMatch(/CACHE_NAME = 'tree-map-v20'/);
   });
 });
