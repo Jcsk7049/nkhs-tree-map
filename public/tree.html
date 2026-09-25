@@ -17,6 +17,9 @@
     #errors { color: #c62828; margin-top: 8px; }
     #banner { display: none; margin-bottom: 16px; padding: 12px; border-radius: 4px;
               background: #fff3e0; border: 1px solid #ef6c00; color: #e65100; }
+    label.remember { font-weight: normal; }
+    #remember-me { width: auto; margin: 0 6px 0 0; }
+    #forget-me { width: auto; margin-top: 6px; padding: 4px 10px; font-size: 14px; }
     #history { margin-top: 28px; border-top: 1px solid #ddd; padding-top: 8px; }
     #history h2 { font-size: 18px; margin: 8px 0; }
   </style>
@@ -33,6 +36,8 @@
     <label>通行碼 <span class="hint">(老師發給你的 7 碼,例:K7M-2QX-4)</span>
       <input type="text" id="studentCode" autocapitalize="characters" autocorrect="off" spellcheck="false" required />
     </label>
+    <label class="remember"><input type="checkbox" id="remember-me" /> 在這支手機記住我的通行碼 <span class="hint">(只在自己的手機勾,共用平板不要勾)</span></label>
+    <button type="button" id="forget-me" hidden>忘記這支手機</button>
     <label>仰角(度) <input type="number" id="angleDeg" step="0.1" required /></label>
     <label>水平距離(公尺) <input type="number" id="distanceM" step="0.01" required /></label>
     <label>樹圍(公分) <input type="number" id="girthCm" step="0.1" required /></label>
@@ -54,6 +59,7 @@
     import { fetchHistory, renderHistory } from '../src/trendView.js';
     import { isValidCodeFormat, normalizeCode } from '../src/studentCode.js';
     import { parseStudentId } from '../src/studentId.js';
+    import { loadRemembered, saveRemembered, forgetRemembered } from '../src/rememberCode.js';
     import { API_URL } from '../src/config.js';
 
     /** 佔位字串一律以 PASTE_ 開頭;用前綴判斷,才不會被「整份取代佔位字串」的操作誤判成已設定。 */
@@ -136,6 +142,24 @@
     } catch (err) {
       // 無痕模式讀不到就算了,只是少一個預填。
     }
+
+    // 「記住我」:學生自己勾選才把學號+通行碼存在這支手機(預設不勾;共用平板不要勾)。
+    const store = (() => { try { return window.localStorage; } catch (err) { return null; } })();
+    const rememberBox = document.getElementById('remember-me');
+    const forgetBtn = document.getElementById('forget-me');
+    const remembered = loadRemembered(store);
+    if (remembered) {
+      classNoInput.value = remembered.classNo;
+      codeInput.value = remembered.code;
+      rememberBox.checked = true;
+      forgetBtn.hidden = false;
+    }
+    forgetBtn.addEventListener('click', () => {
+      forgetRemembered(store);
+      codeInput.value = '';
+      rememberBox.checked = false;
+      forgetBtn.hidden = true;
+    });
     refreshStudentIdHint();
 
     if ('serviceWorker' in navigator) {
@@ -252,13 +276,26 @@
           hideBanner();
           const who = studentName ? `(填寫人:${studentName})` : '';
           showResult(`送出成功!計算樹高:${record.calculatedHeight} 公尺${who}。老師核可後會出現在歷年趨勢圖。`);
-          codeInput.value = ''; // 共用平板:通行碼不留在畫面上
+          if (rememberBox.checked) {
+            // 只有送出成功(後端確認學號+通行碼正確)才記住,不會記下打錯的碼。
+            saveRemembered(store, record.studentClassNo, record.studentCode);
+            forgetBtn.hidden = false;
+          } else {
+            forgetRemembered(store);
+            forgetBtn.hidden = true;
+            codeInput.value = ''; // 沒勾「記住我」:通行碼不留在畫面上(共用平板)
+          }
           loadHistory();
         } else if (status === 'queued') {
           showResult(`已存本機,計算樹高:${record.calculatedHeight} 公尺,恢復網路後將自動同步`);
-          codeInput.value = '';
+          if (!rememberBox.checked) codeInput.value = '';
         } else {
           // rejected:後端永久拒絕或學生被鎖定,資料沒有被保留,必須讓學生知道。
+          if (code === 'STUDENT_REJECTED') {
+            // 記住的碼已失效(例如老師重設過):不要下次又自動填錯的碼。
+            forgetRemembered(store);
+            forgetBtn.hidden = true;
+          }
           errorsEl.textContent = explainRejection(code, error);
         }
       } catch (err) {

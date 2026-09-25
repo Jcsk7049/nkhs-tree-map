@@ -49,6 +49,7 @@
     import { matchSummary, PENDING_COLOR } from '../src/heightColors.js';
     import { buildHash } from '../src/appShell.js';
     import { isEmbedded } from '../src/embed.js';
+    import { campusBounds } from '../src/mapBounds.js';
 
     const MEASURED_COLOR = '#2e7d32';
     const UNMEASURED_COLOR = '#9e9e9e';
@@ -138,6 +139,15 @@
       }
     }
 
+    /** 地圖鎖在校園範圍:拖不出去、也縮不到比校園更小。 */
+    function lockToCampus() {
+      const box = campusBounds(trees);
+      if (!box) return;
+      map.options.maxBoundsViscosity = 1;
+      map.setMaxBounds(box);
+      map.setMinZoom(map.getBoundsZoom(box));
+    }
+
     async function loadSummary() {
       if (!API_URL || API_URL.indexOf('PASTE_') === 0) return;
       try {
@@ -216,6 +226,7 @@
         say('樹木資料是空的。請直接掃樹上的 QRCode。', true);
       } else {
         map.fitBounds(L.latLngBounds(trees.map((t) => [t.y, t.x])), { padding: [20, 20] });
+        lockToCampus();
         renderTrees();
         loadSummary();
       }

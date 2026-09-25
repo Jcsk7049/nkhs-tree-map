@@ -70,6 +70,7 @@
     import { requireTeacher } from '../src/teacherGate.js';
     import { applyEmbedMode, isEmbedded } from '../src/embed.js';
     import { buildHash } from '../src/appShell.js';
+    import { campusBounds } from '../src/mapBounds.js';
 
     // 教師登入通過、內容顯示後才初始化地圖(Leaflet 需要容器有實際尺寸)。
     applyEmbedMode(document, window.location.search);
@@ -355,6 +356,15 @@
     });
 
     let loadingSummary = false;
+    /** 地圖鎖在校園範圍:拖不出去、也縮不到比校園更小。 */
+    function lockToCampus() {
+      const box = campusBounds(trees);
+      if (!box) return;
+      map.options.maxBoundsViscosity = 1;
+      map.setMaxBounds(box);
+      map.setMinZoom(map.getBoundsZoom(box));
+    }
+
     async function loadSummary() {
       if (loadingSummary) return;
       if (!API_URL || API_URL.indexOf('PASTE_') === 0) {
@@ -413,6 +423,7 @@
 
       const bounds = L.latLngBounds(trees.map((t) => [t.y, t.x]));
       map.fitBounds(bounds, { padding: [20, 20] });
+      lockToCampus();
       renderLegend();
       render();
       loadSummary();
