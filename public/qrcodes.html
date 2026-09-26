@@ -88,7 +88,7 @@
 
   <script type="module">
     import qrcode from './vendor/qrcode.mjs';
-    import { parseIdList, buildTreeUrl, MAX_LABELS, partitionOfficial } from '../src/qrLabels.js';
+    import { parseIdList, buildTreeUrl, MAX_LABELS, partitionOfficial, takePrintOne, PRINT_ONE_KEY } from '../src/qrLabels.js';
     import { indexTrees, orderIdsForWalking } from '../src/treeData.js';
     import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
     import { requireTeacher } from '../src/teacherGate.js';
@@ -235,6 +235,21 @@
     });
 
     printButton.addEventListener('click', () => window.print());
+
+    // ---- 地圖說明框「列印這棵的 QR 標籤」:只放這一棵並自動產生(不動地圖列印清單) ----
+    function applyPrintOne() {
+      const id = takePrintOne((() => { try { return localStorage; } catch (err) { return null; } })());
+      if (!id) return;
+      listInput.value = id;
+      fromMapEl.style.display = 'none';
+      say(`已帶入樹號 ${id},正在產生標籤…`);
+      document.getElementById('generate').click();
+    }
+    applyPrintOne();
+    // 殼層裡 QR 分頁早已開著時,地圖存入後這裡會收到 storage 事件。
+    window.addEventListener('storage', (event) => {
+      if (event.key === PRINT_ONE_KEY && event.newValue) applyPrintOne();
+    });
   </script>
 </body>
 </html>
