@@ -1,24 +1,11 @@
 export const MAX_LABELS = 1000;
 
-export function generateRange({ prefix, start, end, pad }) {
-  if (!Number.isInteger(start) || !Number.isInteger(end)) {
-    throw new Error('起迄號碼必須是整數');
-  }
-  if (start < 0 || end < 0) {
-    throw new Error('起迄號碼不能是負數');
-  }
-  if (start > end) {
-    throw new Error('起始號碼不能大於結束號碼');
-  }
-  if (end - start + 1 > MAX_LABELS) {
-    throw new Error(`一次最多產生 ${MAX_LABELS} 個,請分批產生`);
-  }
-
-  const ids = [];
-  for (let n = start; n <= end; n += 1) {
-    ids.push(`${prefix}${String(n).padStart(pad, '0')}`);
-  }
-  return ids;
+/** 只印官方樹號:依官方樹木索引(樹號 → 樹)分成官方與非官方兩組,各自保留原順序。 */
+export function partitionOfficial(ids, treeIndex) {
+  const official = [];
+  const unknown = [];
+  for (const id of ids) (treeIndex.has(id) ? official : unknown).push(id);
+  return { official, unknown };
 }
 
 export function mergeIds(...lists) {

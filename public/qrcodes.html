@@ -70,18 +70,12 @@
 
     <fieldset>
       <legend>2. 樹編號</legend>
-      <div class="row">
-        <label>前綴 <input type="text" id="range-prefix" value="A-" /></label>
-        <label>起 <input type="number" id="range-start" value="1" min="0" step="1" /></label>
-        <label>迄 <input type="number" id="range-end" value="20" min="0" step="1" /></label>
-        <label>位數 <input type="number" id="range-pad" value="3" min="0" max="8" step="1" /></label>
-      </div>
-      <button type="button" id="add-range">用範圍加入清單</button>
-      <label>編號清單(每行一個,也可用逗號分隔;重複的會自動合併)
-        <textarea id="id-list" placeholder="A-001&#10;A-002&#10;B-015"></textarea>
+      <p class="hint">只能用教育部校園樹木地圖的<strong>官方樹號</strong>(例如 43667),不是官方樹號的不會產生標籤。最方便的做法:在樹木地圖上框選,清單會自動帶到這裡。</p>
+      <label>官方樹號清單(每行一個,也可用逗號分隔;重複的會自動合併)
+        <textarea id="id-list" placeholder="43667&#10;43020"></textarea>
       </label>
       <label class="check"><input type="checkbox" id="walk-order" checked />
-        依地圖座標排序(北到南、蛇行,貼牌時走一圈不用來回跑;不在地圖上的編號排最後)</label>
+        依地圖座標排序(北到南、蛇行,貼牌時走一圈不用來回跑)</label>
     </fieldset>
 
     <button type="button" class="primary" id="generate">產生標籤</button>
@@ -94,7 +88,7 @@
 
   <script type="module">
     import qrcode from './vendor/qrcode.mjs';
-    import { generateRange, parseIdList, mergeIds, buildTreeUrl, MAX_LABELS } from '../src/qrLabels.js';
+    import { parseIdList, buildTreeUrl, MAX_LABELS, partitionOfficial } from '../src/qrLabels.js';
     import { indexTrees, orderIdsForWalking } from '../src/treeData.js';
     import { API_URL, GOOGLE_CLIENT_ID } from '../src/config.js';
     import { requireTeacher } from '../src/teacherGate.js';
@@ -168,33 +162,25 @@
       fromMapEl.append(clearBtn);
     }
 
-    document.getElementById('add-range').addEventListener('click', () => {
-      try {
-        const ids = generateRange({
-          prefix: document.getElementById('range-prefix').value,
-          start: Number(document.getElementById('range-start').value),
-          end: Number(document.getElementById('range-end').value),
-          pad: Number(document.getElementById('range-pad').value),
-        });
-        const merged = mergeIds(parseIdList(listInput.value), ids);
-        listInput.value = merged.join('\n');
-        say(`清單目前共 ${merged.length} 個編號`);
-      } catch (err) {
-        say(err.message, 'error');
-      }
-    });
-
     document.getElementById('generate').addEventListener('click', async () => {
       sheetEl.textContent = '';
       printButton.disabled = true;
       await snapshotReady;
 
-      let ids = parseIdList(listInput.value);
+      if (treeIndex.size === 0) {
+        say('官方樹木資料還沒載入(可能沒有網路),無法確認樹號,請連上網路後重新整理本頁', 'error');
+        return;
+      }
+      const { official, unknown } = partitionOfficial(parseIdList(listInput.value), treeIndex);
+      const skipped = unknown.length > 0
+        ? `。以下不是官方樹號,已略過:${unknown.slice(0, 10).join('、')}${unknown.length > 10 ? `…等 ${unknown.length} 個` : ''}`
+        : '';
+      let ids = official;
       if (document.getElementById('walk-order').checked) {
         ids = orderIdsForWalking(ids, treeIndex, WALK_BAND_DEG);
       }
       if (ids.length === 0) {
-        say('請先輸入樹編號(用範圍加入或直接貼清單)', 'error');
+        say(`請先輸入官方樹號(或從樹木地圖框選帶入)${skipped}`, 'error');
         return;
       }
       if (ids.length > MAX_LABELS) {
@@ -238,9 +224,9 @@
         sheetEl.append(fragment);
         printButton.disabled = false;
         if (isLocalOrigin()) {
-          say(`已產生 ${ids.length} 張標籤。注意:網址是本機位址,正式列印前請改成正式網址`, 'warn');
+          say(`已產生 ${ids.length} 張標籤${skipped}。注意:網址是本機位址,正式列印前請改成正式網址`, 'warn');
         } else {
-          say(`已產生 ${ids.length} 張標籤`);
+          say(`已產生 ${ids.length} 張標籤${skipped}`, unknown.length > 0 ? 'warn' : '');
         }
       } catch (err) {
         sheetEl.textContent = '';

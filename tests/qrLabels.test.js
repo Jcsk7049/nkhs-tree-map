@@ -1,41 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateRange, parseIdList, mergeIds, buildTreeUrl, MAX_LABELS } from '../src/qrLabels.js';
+import { parseIdList, mergeIds, buildTreeUrl, MAX_LABELS } from '../src/qrLabels.js';
 import { getTreeIdFromUrl } from '../src/treePage.js';
-
-describe('generateRange', () => {
-  it('依前綴、起迄、位數產生編號', () => {
-    expect(generateRange({ prefix: 'A-', start: 1, end: 3, pad: 3 })).toEqual(['A-001', 'A-002', 'A-003']);
-  });
-
-  it('數字超過位數時不截斷', () => {
-    expect(generateRange({ prefix: 'T', start: 98, end: 101, pad: 2 })).toEqual(['T98', 'T99', 'T100', 'T101']);
-  });
-
-  it('位數為 0 時不補零,前綴可為空', () => {
-    expect(generateRange({ prefix: '', start: 5, end: 6, pad: 0 })).toEqual(['5', '6']);
-  });
-
-  it('起號大於迄號應丟出錯誤', () => {
-    expect(() => generateRange({ prefix: 'A-', start: 5, end: 1, pad: 3 })).toThrow('起始號碼不能大於結束號碼');
-  });
-
-  it('起迄不是整數應丟出錯誤', () => {
-    expect(() => generateRange({ prefix: 'A-', start: 1.5, end: 3, pad: 3 })).toThrow('起迄號碼必須是整數');
-    expect(() => generateRange({ prefix: 'A-', start: NaN, end: 3, pad: 3 })).toThrow('起迄號碼必須是整數');
-  });
-
-  it('負數起號應丟出錯誤', () => {
-    expect(() => generateRange({ prefix: 'A-', start: -1, end: 3, pad: 3 })).toThrow('起迄號碼不能是負數');
-  });
-
-  it(`一次超過 ${'MAX_LABELS'} 個應丟出錯誤,避免頁面卡死`, () => {
-    expect(() => generateRange({ prefix: 'A-', start: 1, end: MAX_LABELS + 1, pad: 4 })).toThrow('一次最多');
-  });
-
-  it('剛好 MAX_LABELS 個可以產生', () => {
-    expect(generateRange({ prefix: 'A-', start: 1, end: MAX_LABELS, pad: 4 })).toHaveLength(MAX_LABELS);
-  });
-});
 
 describe('parseIdList', () => {
   it('每行一個,去除前後空白與空行', () => {

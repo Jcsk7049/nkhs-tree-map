@@ -26,6 +26,7 @@ export const CACHE_FILES = [
   '../src/studentId.js',
   '../src/rememberCode.js',
   '../src/mapBounds.js',
+  '../src/treeSearch.js',
   '../src/config.js',
   '../src/trend.js',
   '../src/trendView.js',

@@ -17,6 +17,8 @@
     #bar button.active { background: #ff6d00; color: #fff; border: 1px solid #c43e00; }
     #bar button.primary { background: #2e7d32; color: #fff; border: 0; border-radius: 4px; }
     #stats { color: #333; }
+    .search { display: inline-flex; gap: 4px; }
+    #tree-search { width: 7.5em; font-size: 15px; padding: 6px 8px; }
     #message { color: #b26a00; min-height: 1.3em; padding: 0 10px 6px; font-size: 14px; background: #fff; }
     #message.error { color: #c62828; }
     #map { flex: 1; min-height: 0; }
@@ -38,6 +40,8 @@
   <div id="bar">
     <a href="./teacher.html" data-embed-hide>← 教師端</a>
     <strong>南港高工樹木地圖</strong>
+    <span class="search"><input type="search" id="tree-search" list="tree-numbers" inputmode="numeric" placeholder="輸入樹號" aria-label="輸入樹號查找" /><button type="button" id="tree-search-go">找</button></span>
+    <datalist id="tree-numbers"></datalist>
     <label>樹種
       <select id="species-filter"><option value="">全部</option></select>
     </label>
@@ -71,6 +75,7 @@
     import { applyEmbedMode, isEmbedded } from '../src/embed.js';
     import { buildHash } from '../src/appShell.js';
     import { campusBounds } from '../src/mapBounds.js';
+    import { findTree } from '../src/treeSearch.js';
 
     // 教師登入通過、內容顯示後才初始化地圖(Leaflet 需要容器有實際尺寸)。
     applyEmbedMode(document, window.location.search);
@@ -403,6 +408,33 @@
       if (colorMode === 'height' && measurements.size === 0 && pendingByNo.size === 0) loadSummary();
     });
 
+    // ---- 樹號查找:輸入樹牌上的官方樹號 → 飛到那棵樹並打開說明框 ----
+    const searchInput = document.getElementById('tree-search');
+    function fillTreeNumbers() {
+      document.getElementById('tree-numbers').replaceChildren(...trees.map((t) => {
+        const option = document.createElement('option');
+        option.value = t.no;
+        option.label = t.sp;
+        return option;
+      }));
+    }
+    function searchTree() {
+      const tree = findTree(trees, searchInput.value);
+      if (!tree) {
+        say(`找不到樹號「${searchInput.value.trim()}」,請確認樹牌上的號碼`, true);
+        return;
+      }
+      say('');
+      map.setView([tree.y, tree.x], 20);
+      if (!markers.has(tree.no)) {
+        speciesSelect.value = ''; // 被樹種篩選藏起來了:先顯示全部
+        render();
+      }
+      L.popup({ closeButton: true }).setLatLng([tree.y, tree.x]).setContent(buildPopup(tree)).openOn(map);
+    }
+    document.getElementById('tree-search-go').addEventListener('click', searchTree);
+    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchTree(); });
+
     speciesSelect.addEventListener('change', () => {
       say('');
       render();
@@ -424,6 +456,7 @@
       const bounds = L.latLngBounds(trees.map((t) => [t.y, t.x]));
       map.fitBounds(bounds, { padding: [20, 20] });
       lockToCampus();
+      fillTreeNumbers();
       renderLegend();
       render();
       loadSummary();
