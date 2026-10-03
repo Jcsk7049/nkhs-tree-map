@@ -92,6 +92,12 @@
 - QR 頁載入時取出一次;分頁早已開著時靠 `storage` 事件更新。`src/qrLabels.js` 的 `requestPrintOne`/`takePrintOne`。兩頁都不在離線快取,快取版本不變。
 - 487 測試全過;瀏覽器(假登入)驗證兩條路徑都只產生該棵,地圖列印清單不受影響。
 
+## 2026-10-04 鎖定畫面縮放(未 commit)
+- 使用者回報:加到桌面的 App 常被誤觸兩下放大,底部導覽被蓋住。
+- 所有 11 頁:viewport 加 `maximum-scale=1, user-scalable=no`;CSS `html { touch-action: manipulation; }`(擋雙擊放大,iOS/Android 皆有效);≤600px 時 input/select/textarea 16px(iPhone 點進小字輸入框會自動放大且不縮回)。
+- 限制:iPhone 不允許網頁禁止雙指縮放(Apple 規定),只能擋雙擊與輸入框自動放大。取捨:視力不佳者無法放大字。
+- `tests/noZoom.test.js` 檢查每一頁;快取 v23;499 測試全過。瀏覽器 375px 驗證 touch-action 生效、搜尋框 16px、無溢出。**待使用者用真手機確認雙擊不再放大。**
+
 ## 資安說法(已跟使用者更正)
 - 「放在 GitHub/Google 所以安全」是錯的說法:平台可靠 ≠ 程式沒漏洞。
 - 已查證:repo 內無任何密鑰;`API_URL`、`GOOGLE_CLIENT_ID` 本來就公開;真正密鑰 `CODE_PEPPER` 只在 Apps Script 指令碼屬性。

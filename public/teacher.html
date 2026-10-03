@@ -2,9 +2,12 @@
 <html lang="zh-Hant-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
   <title>教師端</title>
   <style>
+    /* 鎖定縮放:不被雙擊放大(放大後底部導覽會被蓋住);手機輸入框 16px 以上,iPhone 點進去才不會自動放大。 */
+    html { touch-action: manipulation; }
+    @media (max-width: 600px) { input, select, textarea { font-size: 16px !important; } }
     body { font-family: sans-serif; margin: 0; padding: 16px; }
     [hidden] { display: none !important; }
     #gate { max-width: 420px; margin: 60px auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; font-family: sans-serif; text-align: center; }

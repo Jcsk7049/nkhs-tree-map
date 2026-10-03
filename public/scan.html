@@ -2,10 +2,13 @@
 <html lang="zh-Hant-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#2e7d32" />
   <title>掃描樹上的 QR Code</title>
   <style>
+    /* 鎖定縮放:不被雙擊放大(放大後底部導覽會被蓋住);手機輸入框 16px 以上,iPhone 點進去才不會自動放大。 */
+    html { touch-action: manipulation; }
+    @media (max-width: 600px) { input, select, textarea { font-size: 16px !important; } }
     html, body { margin: 0; font-family: sans-serif; color: #1b1b1b; }
     [hidden] { display: none !important; }
     main { max-width: 560px; margin: 0 auto; padding: 16px; }

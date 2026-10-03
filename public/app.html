@@ -2,12 +2,15 @@
 <html lang="zh-Hant-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>南港高工 校園樹木量測</title>
   <link rel="manifest" href="./manifest.json" />
   <meta name="theme-color" content="#2e7d32" />
   <link rel="apple-touch-icon" href="./icon-180.png" />
   <style>
+    /* 鎖定縮放:不被雙擊放大(放大後底部導覽會被蓋住);手機輸入框 16px 以上,iPhone 點進去才不會自動放大。 */
+    html { touch-action: manipulation; }
+    @media (max-width: 600px) { input, select, textarea { font-size: 16px !important; } }
     html, body { height: 100%; margin: 0; }
     body { font-family: sans-serif; color: #1b1b1b; display: flex; flex-direction: column; }
     [hidden] { display: none !important; }
